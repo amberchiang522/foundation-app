@@ -32,15 +32,12 @@ export function HomePage() {
         <img
           src="/logo.png"
           alt="鴻勁公益慈善基金會"
-          className="h-24 md:h-32 w-auto mx-auto"
+          className="h-32 md:h-44 lg:h-52 w-auto mx-auto"
           onError={(e) => {
             // Hide image if not found
             (e.target as HTMLImageElement).style.display = 'none'
           }}
         />
-        <h1 className="text-4xl md:text-5xl font-bold tracking-tight">
-          鴻勁公益慈善基金會
-        </h1>
         <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
           加入我們的志工團隊，一起為社會貢獻力量。
           <br className="hidden sm:inline" />

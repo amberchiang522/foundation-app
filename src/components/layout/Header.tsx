@@ -12,17 +12,16 @@ export function Header() {
     <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
       <div className="container flex h-14 items-center">
         <div className="mr-4 flex">
-          <Link to="/" className="mr-6 flex items-center space-x-2">
+          <Link to="/" className="mr-6 flex items-center">
             <img
               src="/logo.png"
               alt="鴻勁公益慈善基金會"
-              className="h-8 w-auto"
+              className="h-10 w-auto"
               onError={(e) => {
                 // Hide image if not found
                 (e.target as HTMLImageElement).style.display = 'none'
               }}
             />
-            <span className="font-bold">鴻勁公益慈善基金會</span>
           </Link>
         </div>
 
