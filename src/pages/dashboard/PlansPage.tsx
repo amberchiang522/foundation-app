@@ -28,14 +28,12 @@ import { projectService, settingsService, type ImageUploadResult } from "@/servi
 import type { Plan, Project, WorkflowStep, WorkflowTemplate, AdminTag, ProjectType, SubTask, ImageData } from "@/types"
 import {
   Plus,
-  ChevronRight,
   Archive,
   CheckCircle,
   XCircle,
   Trash2,
   ArrowLeft,
   Play,
-  FileText,
   ListChecks,
   Paperclip,
   Eye,
@@ -243,6 +241,8 @@ export function PlansPage() {
     }
   }
 
+  // Archive plan function - kept for future use
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const handleArchivePlan = async (plan: Plan) => {
     if (!confirm("確定要封存此計畫嗎？")) return
 
@@ -257,6 +257,7 @@ export function PlansPage() {
       console.error("Failed to archive plan:", error)
     }
   }
+  void handleArchivePlan // Suppress unused warning
 
   // Project operations
   const openProjectForm = (project?: Project) => {
@@ -566,7 +567,7 @@ export function PlansPage() {
   }
 
   // Render workflow steps as horizontal flow
-  const renderWorkflowSteps = (workflow: WorkflowStep[], currentStep?: number) => (
+  const renderWorkflowSteps = (workflow: WorkflowStep[], _currentStep?: number) => (
     <div className="flex items-center justify-center gap-2 flex-wrap py-4">
       {workflow.map((step, index) => {
         const stepStatus = step.status

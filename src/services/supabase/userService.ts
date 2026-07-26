@@ -1,44 +1,44 @@
 import { supabase } from '@/lib/supabase'
 import type { User, VolunteerApplication } from '@/types'
 
-function transformUser(row: any, adminTags: string[] = []): User {
+function transformUser(row: Record<string, unknown>, adminTags: string[] = []): User {
   return {
-    id: row.id,
-    volunteerNumber: row.volunteer_number || '',
-    type: row.type,
-    role: row.role,
+    id: row.id as string,
+    volunteerNumber: (row.volunteer_number as string) || '',
+    type: row.type as User['type'],
+    role: row.role as User['role'],
     adminTags,
-    name: row.name,
-    email: row.email,
-    phone: row.phone,
-    birthday: row.birthday,
-    occupation: row.occupation || '',
-    experience: row.experience || '',
-    lineId: row.line_id || '',
-    avatar: row.avatar,
-    status: row.status,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
+    name: row.name as string,
+    email: row.email as string,
+    phone: row.phone as string,
+    birthday: row.birthday as string,
+    occupation: (row.occupation as string) || '',
+    experience: (row.experience as string) || '',
+    lineId: (row.line_id as string) || '',
+    avatar: row.avatar as User['avatar'],
+    status: row.status as User['status'],
+    createdAt: row.created_at as string,
+    updatedAt: row.updated_at as string,
   }
 }
 
-function transformApplication(row: any): VolunteerApplication {
+function transformApplication(row: Record<string, unknown>): VolunteerApplication {
   return {
-    id: row.id,
-    token: row.token,
-    name: row.name,
-    email: row.email,
-    phone: row.phone,
-    birthday: row.birthday,
-    occupation: row.occupation || '',
-    experience: row.experience || '',
-    lineId: row.line_id || '',
-    status: row.status,
-    reviewNote: row.review_note,
-    reviewedBy: row.reviewed_by,
-    reviewedAt: row.reviewed_at,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
+    id: row.id as string,
+    token: row.token as string,
+    name: row.name as string,
+    email: row.email as string,
+    phone: row.phone as string,
+    birthday: row.birthday as string,
+    occupation: (row.occupation as string) || '',
+    experience: (row.experience as string) || '',
+    lineId: (row.line_id as string) || '',
+    status: row.status as VolunteerApplication['status'],
+    reviewNote: row.review_note as string | undefined,
+    reviewedBy: row.reviewed_by as string | undefined,
+    reviewedAt: row.reviewed_at as string | undefined,
+    createdAt: row.created_at as string,
+    updatedAt: row.updated_at as string,
   }
 }
 
@@ -55,7 +55,7 @@ export const supabaseUserService = {
       console.error('Error fetching users:', error)
       return []
     }
-    return data.map(row => transformUser(row))
+    return (data || []).map(row => transformUser(row as Record<string, unknown>))
   },
 
   async getUserById(id: string): Promise<User | null> {
@@ -70,31 +70,33 @@ export const supabaseUserService = {
       return null
     }
 
+    const row = data as Record<string, unknown>
+
     // Get admin tags if admin
     let adminTags: string[] = []
-    if (data.role === 'admin') {
+    if (row.role === 'admin') {
       const { data: tags } = await supabase
         .from('user_admin_tags')
         .select('tag_id')
         .eq('user_id', id)
       if (tags) {
-        adminTags = tags.map(t => t.tag_id)
+        adminTags = tags.map(t => (t as Record<string, unknown>).tag_id as string)
       }
     }
 
-    return transformUser(data, adminTags)
+    return transformUser(row, adminTags)
   },
 
-  async updateUser(id: string, data: Partial<User>): Promise<User | null> {
-    const updateData: any = {}
-    if (data.name !== undefined) updateData.name = data.name
-    if (data.phone !== undefined) updateData.phone = data.phone
-    if (data.birthday !== undefined) updateData.birthday = data.birthday
-    if (data.occupation !== undefined) updateData.occupation = data.occupation
-    if (data.experience !== undefined) updateData.experience = data.experience
-    if (data.lineId !== undefined) updateData.line_id = data.lineId
-    if (data.avatar !== undefined) updateData.avatar = data.avatar
-    if (data.status !== undefined) updateData.status = data.status
+  async updateUser(id: string, userData: Partial<User>): Promise<User | null> {
+    const updateData: Record<string, unknown> = {}
+    if (userData.name !== undefined) updateData.name = userData.name
+    if (userData.phone !== undefined) updateData.phone = userData.phone
+    if (userData.birthday !== undefined) updateData.birthday = userData.birthday
+    if (userData.occupation !== undefined) updateData.occupation = userData.occupation
+    if (userData.experience !== undefined) updateData.experience = userData.experience
+    if (userData.lineId !== undefined) updateData.line_id = userData.lineId
+    if (userData.avatar !== undefined) updateData.avatar = userData.avatar
+    if (userData.status !== undefined) updateData.status = userData.status
 
     const { data: updated, error } = await supabase
       .from('profiles')
@@ -107,7 +109,7 @@ export const supabaseUserService = {
       console.error('Error updating user:', error)
       return null
     }
-    return transformUser(updated)
+    return transformUser(updated as Record<string, unknown>)
   },
 
   async suspendUser(id: string): Promise<User | null> {
@@ -129,7 +131,7 @@ export const supabaseUserService = {
       console.error('Error fetching applications:', error)
       return []
     }
-    return data.map(transformApplication)
+    return (data || []).map(row => transformApplication(row as Record<string, unknown>))
   },
 
   async getApplicationById(id: string): Promise<VolunteerApplication | null> {
@@ -143,7 +145,7 @@ export const supabaseUserService = {
       console.error('Error fetching application:', error)
       return null
     }
-    return transformApplication(data)
+    return transformApplication(data as Record<string, unknown>)
   },
 
   async getApplicationByToken(token: string): Promise<VolunteerApplication | null> {
@@ -158,7 +160,7 @@ export const supabaseUserService = {
       console.error('Error fetching application by token:', error)
       return null
     }
-    return transformApplication(data)
+    return transformApplication(data as Record<string, unknown>)
   },
 
   async getApplicationByEmail(email: string): Promise<VolunteerApplication | null> {
@@ -175,20 +177,20 @@ export const supabaseUserService = {
       console.error('Error fetching application by email:', error)
       return null
     }
-    return transformApplication(data)
+    return transformApplication(data as Record<string, unknown>)
   },
 
-  async createApplication(data: Omit<VolunteerApplication, 'id' | 'token' | 'status' | 'createdAt' | 'updatedAt'>): Promise<VolunteerApplication> {
+  async createApplication(appData: Omit<VolunteerApplication, 'id' | 'token' | 'status' | 'createdAt' | 'updatedAt'>): Promise<VolunteerApplication> {
     const { data: newApp, error } = await supabase
       .from('volunteer_applications')
       .insert({
-        name: data.name,
-        email: data.email,
-        phone: data.phone,
-        birthday: data.birthday,
-        occupation: data.occupation,
-        experience: data.experience,
-        line_id: data.lineId,
+        name: appData.name,
+        email: appData.email,
+        phone: appData.phone,
+        birthday: appData.birthday,
+        occupation: appData.occupation,
+        experience: appData.experience,
+        line_id: appData.lineId,
         status: 'pending',
       })
       .select()
@@ -198,22 +200,22 @@ export const supabaseUserService = {
       console.error('Error creating application:', error)
       throw error
     }
-    return transformApplication(newApp)
+    return transformApplication(newApp as Record<string, unknown>)
   },
 
-  async updateApplication(id: string, data: Partial<VolunteerApplication>): Promise<VolunteerApplication | null> {
-    const updateData: any = {}
-    if (data.name !== undefined) updateData.name = data.name
-    if (data.email !== undefined) updateData.email = data.email
-    if (data.phone !== undefined) updateData.phone = data.phone
-    if (data.birthday !== undefined) updateData.birthday = data.birthday
-    if (data.occupation !== undefined) updateData.occupation = data.occupation
-    if (data.experience !== undefined) updateData.experience = data.experience
-    if (data.lineId !== undefined) updateData.line_id = data.lineId
-    if (data.status !== undefined) updateData.status = data.status
-    if (data.reviewNote !== undefined) updateData.review_note = data.reviewNote
-    if (data.reviewedBy !== undefined) updateData.reviewed_by = data.reviewedBy
-    if (data.reviewedAt !== undefined) updateData.reviewed_at = data.reviewedAt
+  async updateApplication(id: string, appData: Partial<VolunteerApplication>): Promise<VolunteerApplication | null> {
+    const updateData: Record<string, unknown> = {}
+    if (appData.name !== undefined) updateData.name = appData.name
+    if (appData.email !== undefined) updateData.email = appData.email
+    if (appData.phone !== undefined) updateData.phone = appData.phone
+    if (appData.birthday !== undefined) updateData.birthday = appData.birthday
+    if (appData.occupation !== undefined) updateData.occupation = appData.occupation
+    if (appData.experience !== undefined) updateData.experience = appData.experience
+    if (appData.lineId !== undefined) updateData.line_id = appData.lineId
+    if (appData.status !== undefined) updateData.status = appData.status
+    if (appData.reviewNote !== undefined) updateData.review_note = appData.reviewNote
+    if (appData.reviewedBy !== undefined) updateData.reviewed_by = appData.reviewedBy
+    if (appData.reviewedAt !== undefined) updateData.reviewed_at = appData.reviewedAt
 
     const { data: updated, error } = await supabase
       .from('volunteer_applications')
@@ -226,7 +228,7 @@ export const supabaseUserService = {
       console.error('Error updating application:', error)
       return null
     }
-    return transformApplication(updated)
+    return transformApplication(updated as Record<string, unknown>)
   },
 
   async approveApplication(id: string, reviewerId: string): Promise<User | null> {
@@ -240,11 +242,7 @@ export const supabaseUserService = {
       reviewedAt: new Date().toISOString(),
     })
 
-    // Note: User creation in Supabase requires using the admin API or inviting the user
-    // For now, we'll just mark the application as approved
-    // The actual user account creation should be handled separately
     console.log(`Application approved. User should be created with email: ${application.email}`)
-
     return null
   },
 

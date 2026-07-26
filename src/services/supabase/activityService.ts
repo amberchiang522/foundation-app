@@ -1,39 +1,39 @@
 import { supabase } from '@/lib/supabase'
 import type { Activity, ActivityRegistration } from '@/types'
 
-function transformActivity(row: any): Activity {
+function transformActivity(row: Record<string, unknown>): Activity {
   return {
-    id: row.id,
-    projectId: row.project_id,
-    name: row.name,
-    description: row.description || '',
-    date: row.date,
-    location: row.location || '',
-    type: row.type || '',
-    coverImage: row.cover_image,
-    contentImages: row.content_images || [],
-    capacity: row.capacity,
-    registrationMode: row.registration_mode,
-    status: row.status,
-    createdBy: row.created_by,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
+    id: row.id as string,
+    projectId: row.project_id as string | undefined,
+    name: row.name as string,
+    description: (row.description as string) || '',
+    date: row.date as string,
+    location: (row.location as string) || '',
+    type: (row.type as string) || '',
+    coverImage: row.cover_image as Activity['coverImage'],
+    contentImages: (row.content_images as Activity['contentImages']) || [],
+    capacity: row.capacity as number,
+    registrationMode: row.registration_mode as Activity['registrationMode'],
+    status: row.status as Activity['status'],
+    createdBy: row.created_by as string,
+    createdAt: row.created_at as string,
+    updatedAt: row.updated_at as string,
   }
 }
 
-function transformRegistration(row: any): ActivityRegistration {
+function transformRegistration(row: Record<string, unknown>): ActivityRegistration {
   return {
-    id: row.id,
-    activityId: row.activity_id,
-    userId: row.user_id,
-    status: row.status,
-    waitlistPosition: row.waitlist_position,
-    reviewedBy: row.reviewed_by,
-    reviewedAt: row.reviewed_at,
-    attended: row.attended,
-    serviceHours: row.service_hours,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
+    id: row.id as string,
+    activityId: row.activity_id as string,
+    userId: row.user_id as string,
+    status: row.status as ActivityRegistration['status'],
+    waitlistPosition: row.waitlist_position as number | undefined,
+    reviewedBy: row.reviewed_by as string | undefined,
+    reviewedAt: row.reviewed_at as string | undefined,
+    attended: row.attended as boolean | undefined,
+    serviceHours: row.service_hours as number | undefined,
+    createdAt: row.created_at as string,
+    updatedAt: row.updated_at as string,
   }
 }
 
@@ -49,7 +49,7 @@ export const supabaseActivityService = {
       console.error('Error fetching activities:', error)
       return []
     }
-    return data.map(transformActivity)
+    return (data || []).map(row => transformActivity(row as Record<string, unknown>))
   },
 
   async getUpcomingActivities(): Promise<Activity[]> {
@@ -63,7 +63,7 @@ export const supabaseActivityService = {
       console.error('Error fetching upcoming activities:', error)
       return []
     }
-    return data.map(transformActivity)
+    return (data || []).map(row => transformActivity(row as Record<string, unknown>))
   },
 
   async getPastActivities(): Promise<Activity[]> {
@@ -77,7 +77,7 @@ export const supabaseActivityService = {
       console.error('Error fetching past activities:', error)
       return []
     }
-    return data.map(transformActivity)
+    return (data || []).map(row => transformActivity(row as Record<string, unknown>))
   },
 
   async getActivityById(id: string): Promise<Activity | null> {
@@ -91,27 +91,27 @@ export const supabaseActivityService = {
       console.error('Error fetching activity:', error)
       return null
     }
-    return transformActivity(data)
+    return transformActivity(data as Record<string, unknown>)
   },
 
-  async createActivity(data: Omit<Activity, 'id' | 'createdAt' | 'updatedAt'>): Promise<Activity> {
+  async createActivity(activityData: Omit<Activity, 'id' | 'createdAt' | 'updatedAt'>): Promise<Activity> {
     const { data: session } = await supabase.auth.getSession()
     const userId = session.session?.user.id
 
     const { data: newActivity, error } = await supabase
       .from('activities')
       .insert({
-        project_id: data.projectId,
-        name: data.name,
-        description: data.description,
-        date: data.date,
-        location: data.location,
-        type: data.type,
-        cover_image: data.coverImage,
-        content_images: data.contentImages,
-        capacity: data.capacity,
-        registration_mode: data.registrationMode,
-        status: data.status,
+        project_id: activityData.projectId,
+        name: activityData.name,
+        description: activityData.description,
+        date: activityData.date,
+        location: activityData.location,
+        type: activityData.type,
+        cover_image: activityData.coverImage,
+        content_images: activityData.contentImages,
+        capacity: activityData.capacity,
+        registration_mode: activityData.registrationMode,
+        status: activityData.status,
         created_by: userId,
       })
       .select()
@@ -121,21 +121,21 @@ export const supabaseActivityService = {
       console.error('Error creating activity:', error)
       throw error
     }
-    return transformActivity(newActivity)
+    return transformActivity(newActivity as Record<string, unknown>)
   },
 
-  async updateActivity(id: string, data: Partial<Activity>): Promise<Activity | null> {
-    const updateData: any = {}
-    if (data.name !== undefined) updateData.name = data.name
-    if (data.description !== undefined) updateData.description = data.description
-    if (data.date !== undefined) updateData.date = data.date
-    if (data.location !== undefined) updateData.location = data.location
-    if (data.type !== undefined) updateData.type = data.type
-    if (data.coverImage !== undefined) updateData.cover_image = data.coverImage
-    if (data.contentImages !== undefined) updateData.content_images = data.contentImages
-    if (data.capacity !== undefined) updateData.capacity = data.capacity
-    if (data.registrationMode !== undefined) updateData.registration_mode = data.registrationMode
-    if (data.status !== undefined) updateData.status = data.status
+  async updateActivity(id: string, activityData: Partial<Activity>): Promise<Activity | null> {
+    const updateData: Record<string, unknown> = {}
+    if (activityData.name !== undefined) updateData.name = activityData.name
+    if (activityData.description !== undefined) updateData.description = activityData.description
+    if (activityData.date !== undefined) updateData.date = activityData.date
+    if (activityData.location !== undefined) updateData.location = activityData.location
+    if (activityData.type !== undefined) updateData.type = activityData.type
+    if (activityData.coverImage !== undefined) updateData.cover_image = activityData.coverImage
+    if (activityData.contentImages !== undefined) updateData.content_images = activityData.contentImages
+    if (activityData.capacity !== undefined) updateData.capacity = activityData.capacity
+    if (activityData.registrationMode !== undefined) updateData.registration_mode = activityData.registrationMode
+    if (activityData.status !== undefined) updateData.status = activityData.status
 
     const { data: updated, error } = await supabase
       .from('activities')
@@ -148,7 +148,7 @@ export const supabaseActivityService = {
       console.error('Error updating activity:', error)
       return null
     }
-    return transformActivity(updated)
+    return transformActivity(updated as Record<string, unknown>)
   },
 
   async archiveActivity(id: string): Promise<Activity | null> {
@@ -166,7 +166,7 @@ export const supabaseActivityService = {
       console.error('Error fetching registrations:', error)
       return []
     }
-    return data.map(transformRegistration)
+    return (data || []).map(row => transformRegistration(row as Record<string, unknown>))
   },
 
   async getRegistrationsByUser(userId: string): Promise<ActivityRegistration[]> {
@@ -179,7 +179,7 @@ export const supabaseActivityService = {
       console.error('Error fetching user registrations:', error)
       return []
     }
-    return data.map(transformRegistration)
+    return (data || []).map(row => transformRegistration(row as Record<string, unknown>))
   },
 
   async getRegistration(activityId: string, userId: string): Promise<ActivityRegistration | null> {
@@ -195,7 +195,7 @@ export const supabaseActivityService = {
       console.error('Error fetching registration:', error)
       return null
     }
-    return transformRegistration(data)
+    return transformRegistration(data as Record<string, unknown>)
   },
 
   async registerForActivity(activityId: string, userId: string): Promise<ActivityRegistration | null> {
@@ -244,7 +244,7 @@ export const supabaseActivityService = {
       console.error('Error creating registration:', error)
       return null
     }
-    return transformRegistration(newReg)
+    return transformRegistration(newReg as Record<string, unknown>)
   },
 
   async cancelRegistration(activityId: string, userId: string): Promise<boolean> {
@@ -277,7 +277,7 @@ export const supabaseActivityService = {
       console.error('Error approving registration:', error)
       return null
     }
-    return transformRegistration(data)
+    return transformRegistration(data as Record<string, unknown>)
   },
 
   async recordAttendance(registrationId: string, attended: boolean, serviceHours?: number): Promise<ActivityRegistration | null> {
@@ -295,7 +295,7 @@ export const supabaseActivityService = {
       console.error('Error recording attendance:', error)
       return null
     }
-    return transformRegistration(data)
+    return transformRegistration(data as Record<string, unknown>)
   },
 
   // Stats
@@ -332,6 +332,6 @@ export const supabaseActivityService = {
       console.error('Error fetching service hours:', error)
       return 0
     }
-    return data.reduce((sum, r) => sum + (r.service_hours || 0), 0)
+    return (data || []).reduce((sum, r) => sum + ((r.service_hours as number) || 0), 0)
   },
 }

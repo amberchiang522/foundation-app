@@ -1,56 +1,56 @@
 import { supabase } from '@/lib/supabase'
 import type { Plan, Project, ProjectType, WorkflowTemplate } from '@/types'
 
-function transformPlan(row: any): Plan {
+function transformPlan(row: Record<string, unknown>): Plan {
   return {
-    id: row.id,
-    name: row.name,
-    description: row.description || '',
-    type: row.type || '',
-    workflow: row.workflow || [],
-    status: row.status,
-    createdBy: row.created_by,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
+    id: row.id as string,
+    name: row.name as string,
+    description: (row.description as string) || '',
+    type: (row.type as string) || '',
+    workflow: (row.workflow as Plan['workflow']) || [],
+    status: row.status as Plan['status'],
+    createdBy: row.created_by as string,
+    createdAt: row.created_at as string,
+    updatedAt: row.updated_at as string,
   }
 }
 
-function transformProject(row: any): Project {
+function transformProject(row: Record<string, unknown>): Project {
   return {
-    id: row.id,
-    planId: row.plan_id,
-    name: row.name,
-    description: row.description || '',
-    projectType: row.project_type || '',
-    budgetAmount: row.budget_amount,
-    resultImages: row.result_images || [],
-    receiptImages: row.receipt_images || [],
-    workflow: row.workflow || [],
-    currentStep: row.current_step,
-    status: row.status,
-    createdBy: row.created_by,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
+    id: row.id as string,
+    planId: row.plan_id as string,
+    name: row.name as string,
+    description: (row.description as string) || '',
+    projectType: (row.project_type as string) || '',
+    budgetAmount: row.budget_amount as number,
+    resultImages: (row.result_images as Project['resultImages']) || [],
+    receiptImages: (row.receipt_images as Project['receiptImages']) || [],
+    workflow: (row.workflow as Project['workflow']) || [],
+    currentStep: row.current_step as number,
+    status: row.status as Project['status'],
+    createdBy: row.created_by as string,
+    createdAt: row.created_at as string,
+    updatedAt: row.updated_at as string,
   }
 }
 
-function transformProjectType(row: any): ProjectType {
+function transformProjectType(row: Record<string, unknown>): ProjectType {
   return {
-    id: row.id,
-    name: row.name,
-    budgetMin: row.budget_min,
-    budgetMax: row.budget_max,
-    defaultWorkflow: row.default_workflow,
+    id: row.id as string,
+    name: row.name as string,
+    budgetMin: row.budget_min as number,
+    budgetMax: row.budget_max as number,
+    defaultWorkflow: row.default_workflow as ProjectType['defaultWorkflow'],
   }
 }
 
-function transformWorkflowTemplate(row: any): WorkflowTemplate {
+function transformWorkflowTemplate(row: Record<string, unknown>): WorkflowTemplate {
   return {
-    id: row.id,
-    name: row.name,
-    description: row.description || '',
-    steps: row.steps || [],
-    createdAt: row.created_at,
+    id: row.id as string,
+    name: row.name as string,
+    description: (row.description as string) || '',
+    steps: (row.steps as WorkflowTemplate['steps']) || [],
+    createdAt: row.created_at as string,
   }
 }
 
@@ -66,7 +66,7 @@ export const supabaseProjectService = {
       console.error('Error fetching plans:', error)
       return []
     }
-    return data.map(transformPlan)
+    return (data || []).map(row => transformPlan(row as Record<string, unknown>))
   },
 
   async getPlanById(id: string): Promise<Plan | null> {
@@ -80,21 +80,21 @@ export const supabaseProjectService = {
       console.error('Error fetching plan:', error)
       return null
     }
-    return transformPlan(data)
+    return transformPlan(data as Record<string, unknown>)
   },
 
-  async createPlan(data: Omit<Plan, 'id' | 'createdAt' | 'updatedAt'>): Promise<Plan> {
+  async createPlan(planData: Omit<Plan, 'id' | 'createdAt' | 'updatedAt'>): Promise<Plan> {
     const { data: session } = await supabase.auth.getSession()
     const userId = session.session?.user.id
 
     const { data: newPlan, error } = await supabase
       .from('plans')
       .insert({
-        name: data.name,
-        description: data.description,
-        type: data.type,
-        workflow: data.workflow,
-        status: data.status,
+        name: planData.name,
+        description: planData.description,
+        type: planData.type,
+        workflow: planData.workflow,
+        status: planData.status,
         created_by: userId,
       })
       .select()
@@ -104,16 +104,16 @@ export const supabaseProjectService = {
       console.error('Error creating plan:', error)
       throw error
     }
-    return transformPlan(newPlan)
+    return transformPlan(newPlan as Record<string, unknown>)
   },
 
-  async updatePlan(id: string, data: Partial<Plan>): Promise<Plan | null> {
-    const updateData: any = {}
-    if (data.name !== undefined) updateData.name = data.name
-    if (data.description !== undefined) updateData.description = data.description
-    if (data.type !== undefined) updateData.type = data.type
-    if (data.workflow !== undefined) updateData.workflow = data.workflow
-    if (data.status !== undefined) updateData.status = data.status
+  async updatePlan(id: string, planData: Partial<Plan>): Promise<Plan | null> {
+    const updateData: Record<string, unknown> = {}
+    if (planData.name !== undefined) updateData.name = planData.name
+    if (planData.description !== undefined) updateData.description = planData.description
+    if (planData.type !== undefined) updateData.type = planData.type
+    if (planData.workflow !== undefined) updateData.workflow = planData.workflow
+    if (planData.status !== undefined) updateData.status = planData.status
 
     const { data: updated, error } = await supabase
       .from('plans')
@@ -126,7 +126,7 @@ export const supabaseProjectService = {
       console.error('Error updating plan:', error)
       return null
     }
-    return transformPlan(updated)
+    return transformPlan(updated as Record<string, unknown>)
   },
 
   async archivePlan(id: string): Promise<Plan | null> {
@@ -144,7 +144,7 @@ export const supabaseProjectService = {
       console.error('Error fetching projects:', error)
       return []
     }
-    return data.map(transformProject)
+    return (data || []).map(row => transformProject(row as Record<string, unknown>))
   },
 
   async getProjectsByPlan(planId: string): Promise<Project[]> {
@@ -158,7 +158,7 @@ export const supabaseProjectService = {
       console.error('Error fetching projects by plan:', error)
       return []
     }
-    return data.map(transformProject)
+    return (data || []).map(row => transformProject(row as Record<string, unknown>))
   },
 
   async getProjectById(id: string): Promise<Project | null> {
@@ -172,26 +172,26 @@ export const supabaseProjectService = {
       console.error('Error fetching project:', error)
       return null
     }
-    return transformProject(data)
+    return transformProject(data as Record<string, unknown>)
   },
 
-  async createProject(data: Omit<Project, 'id' | 'createdAt' | 'updatedAt'>): Promise<Project> {
+  async createProject(projectData: Omit<Project, 'id' | 'createdAt' | 'updatedAt'>): Promise<Project> {
     const { data: session } = await supabase.auth.getSession()
     const userId = session.session?.user.id
 
     const { data: newProject, error } = await supabase
       .from('projects')
       .insert({
-        plan_id: data.planId,
-        name: data.name,
-        description: data.description,
-        project_type: data.projectType,
-        budget_amount: data.budgetAmount,
-        result_images: data.resultImages,
-        receipt_images: data.receiptImages,
-        workflow: data.workflow,
-        current_step: data.currentStep,
-        status: data.status,
+        plan_id: projectData.planId,
+        name: projectData.name,
+        description: projectData.description,
+        project_type: projectData.projectType,
+        budget_amount: projectData.budgetAmount,
+        result_images: projectData.resultImages,
+        receipt_images: projectData.receiptImages,
+        workflow: projectData.workflow,
+        current_step: projectData.currentStep,
+        status: projectData.status,
         created_by: userId,
       })
       .select()
@@ -201,20 +201,20 @@ export const supabaseProjectService = {
       console.error('Error creating project:', error)
       throw error
     }
-    return transformProject(newProject)
+    return transformProject(newProject as Record<string, unknown>)
   },
 
-  async updateProject(id: string, data: Partial<Project>): Promise<Project | null> {
-    const updateData: any = {}
-    if (data.name !== undefined) updateData.name = data.name
-    if (data.description !== undefined) updateData.description = data.description
-    if (data.projectType !== undefined) updateData.project_type = data.projectType
-    if (data.budgetAmount !== undefined) updateData.budget_amount = data.budgetAmount
-    if (data.resultImages !== undefined) updateData.result_images = data.resultImages
-    if (data.receiptImages !== undefined) updateData.receipt_images = data.receiptImages
-    if (data.workflow !== undefined) updateData.workflow = data.workflow
-    if (data.currentStep !== undefined) updateData.current_step = data.currentStep
-    if (data.status !== undefined) updateData.status = data.status
+  async updateProject(id: string, projectData: Partial<Project>): Promise<Project | null> {
+    const updateData: Record<string, unknown> = {}
+    if (projectData.name !== undefined) updateData.name = projectData.name
+    if (projectData.description !== undefined) updateData.description = projectData.description
+    if (projectData.projectType !== undefined) updateData.project_type = projectData.projectType
+    if (projectData.budgetAmount !== undefined) updateData.budget_amount = projectData.budgetAmount
+    if (projectData.resultImages !== undefined) updateData.result_images = projectData.resultImages
+    if (projectData.receiptImages !== undefined) updateData.receipt_images = projectData.receiptImages
+    if (projectData.workflow !== undefined) updateData.workflow = projectData.workflow
+    if (projectData.currentStep !== undefined) updateData.current_step = projectData.currentStep
+    if (projectData.status !== undefined) updateData.status = projectData.status
 
     const { data: updated, error } = await supabase
       .from('projects')
@@ -227,7 +227,7 @@ export const supabaseProjectService = {
       console.error('Error updating project:', error)
       return null
     }
-    return transformProject(updated)
+    return transformProject(updated as Record<string, unknown>)
   },
 
   async advanceWorkflow(projectId: string, stepId: string, approverId: string, approved: boolean, note?: string): Promise<Project | null> {
@@ -271,17 +271,17 @@ export const supabaseProjectService = {
       console.error('Error fetching project types:', error)
       return []
     }
-    return data.map(transformProjectType)
+    return (data || []).map(row => transformProjectType(row as Record<string, unknown>))
   },
 
-  async createProjectType(data: Omit<ProjectType, 'id'>): Promise<ProjectType> {
+  async createProjectType(typeData: Omit<ProjectType, 'id'>): Promise<ProjectType> {
     const { data: newType, error } = await supabase
       .from('project_types')
       .insert({
-        name: data.name,
-        budget_min: data.budgetMin,
-        budget_max: data.budgetMax,
-        default_workflow: data.defaultWorkflow,
+        name: typeData.name,
+        budget_min: typeData.budgetMin,
+        budget_max: typeData.budgetMax,
+        default_workflow: typeData.defaultWorkflow,
       })
       .select()
       .single()
@@ -290,15 +290,15 @@ export const supabaseProjectService = {
       console.error('Error creating project type:', error)
       throw error
     }
-    return transformProjectType(newType)
+    return transformProjectType(newType as Record<string, unknown>)
   },
 
-  async updateProjectType(id: string, data: Partial<ProjectType>): Promise<ProjectType | null> {
-    const updateData: any = {}
-    if (data.name !== undefined) updateData.name = data.name
-    if (data.budgetMin !== undefined) updateData.budget_min = data.budgetMin
-    if (data.budgetMax !== undefined) updateData.budget_max = data.budgetMax
-    if (data.defaultWorkflow !== undefined) updateData.default_workflow = data.defaultWorkflow
+  async updateProjectType(id: string, typeData: Partial<ProjectType>): Promise<ProjectType | null> {
+    const updateData: Record<string, unknown> = {}
+    if (typeData.name !== undefined) updateData.name = typeData.name
+    if (typeData.budgetMin !== undefined) updateData.budget_min = typeData.budgetMin
+    if (typeData.budgetMax !== undefined) updateData.budget_max = typeData.budgetMax
+    if (typeData.defaultWorkflow !== undefined) updateData.default_workflow = typeData.defaultWorkflow
 
     const { data: updated, error } = await supabase
       .from('project_types')
@@ -311,7 +311,7 @@ export const supabaseProjectService = {
       console.error('Error updating project type:', error)
       return null
     }
-    return transformProjectType(updated)
+    return transformProjectType(updated as Record<string, unknown>)
   },
 
   async deleteProjectType(id: string): Promise<boolean> {
@@ -338,16 +338,16 @@ export const supabaseProjectService = {
       console.error('Error fetching workflow templates:', error)
       return []
     }
-    return data.map(transformWorkflowTemplate)
+    return (data || []).map(row => transformWorkflowTemplate(row as Record<string, unknown>))
   },
 
-  async createWorkflowTemplate(data: Omit<WorkflowTemplate, 'id' | 'createdAt'>): Promise<WorkflowTemplate> {
+  async createWorkflowTemplate(templateData: Omit<WorkflowTemplate, 'id' | 'createdAt'>): Promise<WorkflowTemplate> {
     const { data: newTemplate, error } = await supabase
       .from('workflow_templates')
       .insert({
-        name: data.name,
-        description: data.description,
-        steps: data.steps,
+        name: templateData.name,
+        description: templateData.description,
+        steps: templateData.steps,
       })
       .select()
       .single()
@@ -356,7 +356,7 @@ export const supabaseProjectService = {
       console.error('Error creating workflow template:', error)
       throw error
     }
-    return transformWorkflowTemplate(newTemplate)
+    return transformWorkflowTemplate(newTemplate as Record<string, unknown>)
   },
 
   // Stats

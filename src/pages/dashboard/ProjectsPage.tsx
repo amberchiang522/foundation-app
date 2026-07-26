@@ -41,6 +41,7 @@ const statusConfig: Record<
   active: { label: "進行中", variant: "default" },
   completed: { label: "已完成", variant: "success" },
   archived: { label: "已封存", variant: "secondary" },
+  not_established: { label: "未立案", variant: "destructive" },
 }
 
 const workflowStatusConfig: Record<

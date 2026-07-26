@@ -34,7 +34,7 @@ import { ImageUploader, MultiImageUploader } from "@/components/upload"
 import { useAuth } from "@/contexts/AuthContext"
 import { activityService, userService, type ImageUploadResult } from "@/services"
 import type { Activity, ActivityRegistration, User, ImageData } from "@/types"
-import { Plus, Edit, Users, Archive, Calendar, MapPin, Clock, Tag, Eye } from "lucide-react"
+import { Plus, Edit, Users, Archive, Calendar, MapPin, Clock } from "lucide-react"
 
 const statusLabels: Record<Activity["status"], string> = {
   upcoming: "即將開始",

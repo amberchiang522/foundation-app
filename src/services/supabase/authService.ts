@@ -3,24 +3,24 @@ import type { User } from '@/types'
 import type { AuthResult, LoginCredentials } from '../authService'
 
 // Transform database profile to User type
-function transformProfile(profile: any, adminTags: string[] = []): User {
+function transformProfile(profile: Record<string, unknown>, adminTags: string[] = []): User {
   return {
-    id: profile.id,
-    volunteerNumber: profile.volunteer_number || '',
-    type: profile.type,
-    role: profile.role,
+    id: profile.id as string,
+    volunteerNumber: (profile.volunteer_number as string) || '',
+    type: profile.type as User['type'],
+    role: profile.role as User['role'],
     adminTags: adminTags,
-    name: profile.name,
-    email: profile.email,
-    phone: profile.phone,
-    birthday: profile.birthday,
-    occupation: profile.occupation || '',
-    experience: profile.experience || '',
-    lineId: profile.line_id || '',
-    avatar: profile.avatar || undefined,
-    status: profile.status,
-    createdAt: profile.created_at,
-    updatedAt: profile.updated_at,
+    name: profile.name as string,
+    email: profile.email as string,
+    phone: profile.phone as string,
+    birthday: profile.birthday as string,
+    occupation: (profile.occupation as string) || '',
+    experience: (profile.experience as string) || '',
+    lineId: (profile.line_id as string) || '',
+    avatar: profile.avatar as User['avatar'],
+    status: profile.status as User['status'],
+    createdAt: profile.created_at as string,
+    updatedAt: profile.updated_at as string,
   }
 }
 
@@ -43,7 +43,6 @@ export const supabaseAuthService = {
           status: error.status,
           code: error.code,
           name: error.name,
-          stack: error.stack,
         })
         // Translate common errors to Chinese
         if (error.message?.includes('Invalid login credentials')) {
@@ -102,20 +101,22 @@ export const supabaseAuthService = {
       return null
     }
 
+    const profileRow = profile as Record<string, unknown>
+
     // Get admin tags if user is admin
     let adminTags: string[] = []
-    if (profile.role === 'admin') {
+    if (profileRow.role === 'admin') {
       const { data: tags } = await supabase
         .from('user_admin_tags')
         .select('tag_id')
         .eq('user_id', session.user.id)
 
       if (tags) {
-        adminTags = tags.map(t => t.tag_id)
+        adminTags = tags.map(t => (t as Record<string, unknown>).tag_id as string)
       }
     }
 
-    return transformProfile(profile, adminTags)
+    return transformProfile(profileRow, adminTags)
   },
 
   async isAuthenticated(): Promise<boolean> {
