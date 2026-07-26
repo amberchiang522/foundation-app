@@ -8,7 +8,13 @@
       "Bash(lsof:*)",
       "Bash(curl:*)",
       "Bash(git init:*)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(git rm:*)",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nInitial commit: Foundation App with Supabase\n\n- React + Vite + TypeScript + Tailwind CSS\n- Supabase integration for auth and database\n- Volunteer management system\n- Activity and project management\n- RLS policies for security\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(git remote add:*)",
+      "Bash(git branch:*)",
+      "Bash(git push:*)",
+      "Bash(gh auth:*)"
     ]
   }
 }
