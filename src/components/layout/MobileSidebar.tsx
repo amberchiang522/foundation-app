@@ -59,16 +59,15 @@ export function MobileSidebar({ isOpen, onClose, isAdmin = false, isSuperAdmin =
       {/* Sidebar */}
       <aside className="fixed inset-y-0 left-0 z-50 w-64 bg-background md:hidden">
         <div className="flex items-center justify-between p-6 border-b">
-          <Link to="/dashboard" className="flex items-center gap-2" onClick={onClose}>
+          <Link to="/dashboard" className="inline-block" onClick={onClose}>
             <img
               src="/logo.png"
               alt="鴻勁公益慈善基金會"
-              className="h-8 w-auto"
+              className="h-10 w-auto"
               onError={(e) => {
                 (e.target as HTMLImageElement).style.display = 'none'
               }}
             />
-            <span className="font-bold text-lg">管理後台</span>
           </Link>
           <button onClick={onClose} className="p-2 -mr-2">
             <X className="h-5 w-5" />

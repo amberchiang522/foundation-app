@@ -46,16 +46,15 @@ export function Sidebar({ isAdmin = false, isSuperAdmin = false }: SidebarProps)
   return (
     <aside className="hidden md:flex w-64 flex-col border-r bg-background">
       <div className="p-6">
-        <Link to="/dashboard" className="flex items-center gap-2">
+        <Link to="/dashboard" className="inline-block">
           <img
             src="/logo.png"
             alt="鴻勁公益慈善基金會"
-            className="h-8 w-auto"
+            className="h-10 w-auto"
             onError={(e) => {
               (e.target as HTMLImageElement).style.display = 'none'
             }}
           />
-          <span className="font-bold text-lg">管理後台</span>
         </Link>
       </div>
       <ScrollArea className="flex-1 px-3">

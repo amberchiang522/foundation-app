@@ -20,7 +20,7 @@ export function DashboardHeader({ onMenuClick, userName = "使用者", onLogout 
       </button>
 
       {/* Logo - visible on mobile */}
-      <Link to="/dashboard" className="md:hidden flex items-center gap-2">
+      <Link to="/dashboard" className="md:hidden inline-block">
         <img
           src="/logo.png"
           alt="鴻勁公益慈善基金會"
@@ -29,7 +29,6 @@ export function DashboardHeader({ onMenuClick, userName = "使用者", onLogout 
             (e.target as HTMLImageElement).style.display = 'none'
           }}
         />
-        <span className="font-bold text-sm">管理後台</span>
       </Link>
 
       <div className="flex-1" />
