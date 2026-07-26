@@ -29,6 +29,15 @@ export function HomePage() {
     <div className="space-y-12">
       {/* Hero Section */}
       <section className="text-center py-12 md:py-20 space-y-6">
+        <img
+          src="/logo.png"
+          alt="鴻勁公益慈善基金會"
+          className="h-24 md:h-32 w-auto mx-auto"
+          onError={(e) => {
+            // Hide image if not found
+            (e.target as HTMLImageElement).style.display = 'none'
+          }}
+        />
         <h1 className="text-4xl md:text-5xl font-bold tracking-tight">
           鴻勁公益慈善基金會
         </h1>

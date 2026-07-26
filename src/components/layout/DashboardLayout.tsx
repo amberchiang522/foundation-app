@@ -7,18 +7,19 @@ import { MobileSidebar } from "./MobileSidebar"
 
 export function DashboardLayout() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
-  const { user, isAdmin, logout } = useAuth()
+  const { user, isAdmin, isSuperAdmin, logout } = useAuth()
 
   return (
     <div className="flex min-h-screen">
       {/* Desktop Sidebar */}
-      <Sidebar isAdmin={isAdmin} />
+      <Sidebar isAdmin={isAdmin} isSuperAdmin={isSuperAdmin} />
 
       {/* Mobile Sidebar */}
       <MobileSidebar
         isOpen={mobileMenuOpen}
         onClose={() => setMobileMenuOpen(false)}
         isAdmin={isAdmin}
+        isSuperAdmin={isSuperAdmin}
       />
 
       {/* Main Content */}

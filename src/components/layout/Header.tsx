@@ -13,6 +13,15 @@ export function Header() {
       <div className="container flex h-14 items-center">
         <div className="mr-4 flex">
           <Link to="/" className="mr-6 flex items-center space-x-2">
+            <img
+              src="/logo.png"
+              alt="鴻勁公益慈善基金會"
+              className="h-8 w-auto"
+              onError={(e) => {
+                // Hide image if not found
+                (e.target as HTMLImageElement).style.display = 'none'
+              }}
+            />
             <span className="font-bold">鴻勁公益慈善基金會</span>
           </Link>
         </div>

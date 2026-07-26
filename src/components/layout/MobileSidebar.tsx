@@ -13,12 +13,14 @@ import {
   CalendarDays,
   BarChart3,
   Settings,
+  Shield,
 } from "lucide-react"
 
 interface MobileSidebarProps {
   isOpen: boolean
   onClose: () => void
   isAdmin?: boolean
+  isSuperAdmin?: boolean
 }
 
 const volunteerNavItems = [
@@ -37,7 +39,11 @@ const adminNavItems = [
   { href: "/dashboard/settings", icon: Settings, label: "系統設定" },
 ]
 
-export function MobileSidebar({ isOpen, onClose, isAdmin = true }: MobileSidebarProps) {
+const superAdminNavItems = [
+  { href: "/dashboard/accounts", icon: Shield, label: "帳號管理" },
+]
+
+export function MobileSidebar({ isOpen, onClose, isAdmin = false, isSuperAdmin = false }: MobileSidebarProps) {
   const location = useLocation()
 
   if (!isOpen) return null
@@ -53,8 +59,16 @@ export function MobileSidebar({ isOpen, onClose, isAdmin = true }: MobileSidebar
       {/* Sidebar */}
       <aside className="fixed inset-y-0 left-0 z-50 w-64 bg-background md:hidden">
         <div className="flex items-center justify-between p-6 border-b">
-          <Link to="/dashboard" className="font-bold text-lg" onClick={onClose}>
-            管理後台
+          <Link to="/dashboard" className="flex items-center gap-2" onClick={onClose}>
+            <img
+              src="/logo.png"
+              alt="鴻勁公益慈善基金會"
+              className="h-8 w-auto"
+              onError={(e) => {
+                (e.target as HTMLImageElement).style.display = 'none'
+              }}
+            />
+            <span className="font-bold text-lg">管理後台</span>
           </Link>
           <button onClick={onClose} className="p-2 -mr-2">
             <X className="h-5 w-5" />
@@ -87,6 +101,31 @@ export function MobileSidebar({ isOpen, onClose, isAdmin = true }: MobileSidebar
                   管理功能
                 </p>
                 {adminNavItems.map((item) => (
+                  <Link
+                    key={item.href}
+                    to={item.href}
+                    onClick={onClose}
+                    className={cn(
+                      "flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors",
+                      location.pathname === item.href
+                        ? "bg-primary text-primary-foreground"
+                        : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                    )}
+                  >
+                    <item.icon className="h-4 w-4" />
+                    {item.label}
+                  </Link>
+                ))}
+              </>
+            )}
+
+            {isSuperAdmin && (
+              <>
+                <div className="my-4 border-t" />
+                <p className="px-3 py-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                  超級管理
+                </p>
+                {superAdminNavItems.map((item) => (
                   <Link
                     key={item.href}
                     to={item.href}

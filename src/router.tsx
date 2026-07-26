@@ -25,6 +25,7 @@ import {
   ActivitiesManagePage,
   ReportsPage,
   SettingsPage,
+  AccountManagePage,
 } from "@/pages/dashboard"
 
 // Layouts
@@ -117,6 +118,15 @@ export const router = createBrowserRouter([
         element: (
           <ProtectedRoute requireAdmin>
             <SettingsPage />
+          </ProtectedRoute>
+        ),
+      },
+      // Super Admin only
+      {
+        path: "accounts",
+        element: (
+          <ProtectedRoute requireSuperAdmin>
+            <AccountManagePage />
           </ProtectedRoute>
         ),
       },

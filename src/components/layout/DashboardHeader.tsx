@@ -19,6 +19,19 @@ export function DashboardHeader({ onMenuClick, userName = "使用者", onLogout 
         <Menu className="h-6 w-6" />
       </button>
 
+      {/* Logo - visible on mobile */}
+      <Link to="/dashboard" className="md:hidden flex items-center gap-2">
+        <img
+          src="/logo.png"
+          alt="鴻勁公益慈善基金會"
+          className="h-8 w-auto"
+          onError={(e) => {
+            (e.target as HTMLImageElement).style.display = 'none'
+          }}
+        />
+        <span className="font-bold text-sm">管理後台</span>
+      </Link>
+
       <div className="flex-1" />
 
       <div className="flex items-center gap-4">

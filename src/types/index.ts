@@ -11,7 +11,7 @@ export interface ImageData {
 
 // User / Volunteer types
 export type VolunteerType = 'youth' | 'social'
-export type UserRole = 'volunteer' | 'admin'
+export type UserRole = 'volunteer' | 'admin' | 'super_admin'
 export type UserStatus = 'active' | 'suspended'
 
 export interface User {

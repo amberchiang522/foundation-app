@@ -12,10 +12,12 @@ import {
   CalendarDays,
   BarChart3,
   Settings,
+  Shield,
 } from "lucide-react"
 
 interface SidebarProps {
   isAdmin?: boolean
+  isSuperAdmin?: boolean
 }
 
 const volunteerNavItems = [
@@ -34,13 +36,25 @@ const adminNavItems = [
   { href: "/dashboard/settings", icon: Settings, label: "系統設定" },
 ]
 
-export function Sidebar({ isAdmin = true }: SidebarProps) {
+const superAdminNavItems = [
+  { href: "/dashboard/accounts", icon: Shield, label: "帳號管理" },
+]
+
+export function Sidebar({ isAdmin = false, isSuperAdmin = false }: SidebarProps) {
   const location = useLocation()
 
   return (
     <aside className="hidden md:flex w-64 flex-col border-r bg-background">
       <div className="p-6">
-        <Link to="/dashboard" className="flex items-center space-x-2">
+        <Link to="/dashboard" className="flex items-center gap-2">
+          <img
+            src="/logo.png"
+            alt="鴻勁公益慈善基金會"
+            className="h-8 w-auto"
+            onError={(e) => {
+              (e.target as HTMLImageElement).style.display = 'none'
+            }}
+          />
           <span className="font-bold text-lg">管理後台</span>
         </Link>
       </div>
@@ -69,6 +83,30 @@ export function Sidebar({ isAdmin = true }: SidebarProps) {
                 管理功能
               </p>
               {adminNavItems.map((item) => (
+                <Link
+                  key={item.href}
+                  to={item.href}
+                  className={cn(
+                    "flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors",
+                    location.pathname === item.href
+                      ? "bg-primary text-primary-foreground"
+                      : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                  )}
+                >
+                  <item.icon className="h-4 w-4" />
+                  {item.label}
+                </Link>
+              ))}
+            </>
+          )}
+
+          {isSuperAdmin && (
+            <>
+              <div className="my-4 border-t" />
+              <p className="px-3 py-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                超級管理
+              </p>
+              {superAdminNavItems.map((item) => (
                 <Link
                   key={item.href}
                   to={item.href}
