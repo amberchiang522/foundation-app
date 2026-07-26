@@ -222,7 +222,8 @@ export function AccountManagePage() {
         </div>
       </div>
 
-      <Card>
+      {/* Desktop Table View */}
+      <Card className="hidden md:block">
         <CardHeader>
           <CardTitle>所有帳號 ({users.length})</CardTitle>
         </CardHeader>
@@ -280,6 +281,51 @@ export function AccountManagePage() {
           </Table>
         </CardContent>
       </Card>
+
+      {/* Mobile Card View */}
+      <div className="md:hidden space-y-4">
+        <div className="text-sm text-muted-foreground">
+          所有帳號 ({users.length})
+        </div>
+        {users.map((user) => (
+          <Card key={user.id}>
+            <CardContent className="p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex-1 min-w-0 space-y-2">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-medium">{user.name}</span>
+                    <Badge variant={roleLabels[user.role].variant} className="text-xs">
+                      {roleLabels[user.role].label}
+                    </Badge>
+                    <Badge
+                      variant={user.status === "active" ? "default" : "destructive"}
+                      className="text-xs"
+                    >
+                      {user.status === "active" ? "啟用" : "停權"}
+                    </Badge>
+                  </div>
+                  <p className="text-sm text-muted-foreground truncate">
+                    {user.email}
+                  </p>
+                  {user.adminTags && user.adminTags.length > 0 && (
+                    <p className="text-xs text-muted-foreground">
+                      標籤: {getTagNames(user.adminTags)}
+                    </p>
+                  )}
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => handleEditUser(user)}
+                  disabled={user.id === currentUser?.id}
+                >
+                  <Edit className="h-4 w-4" />
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
 
       {/* Edit User Dialog */}
       <Dialog open={!!editingUser} onOpenChange={() => setEditingUser(null)}>

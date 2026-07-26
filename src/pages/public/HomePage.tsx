@@ -32,7 +32,7 @@ export function HomePage() {
         <img
           src="/logo.png"
           alt="鴻勁公益慈善基金會"
-          className="h-32 md:h-44 lg:h-52 w-auto mx-auto"
+          className="h-32 md:h-44 lg:h-52 w-auto mx-auto object-contain"
           onError={(e) => {
             // Hide image if not found
             (e.target as HTMLImageElement).style.display = 'none'

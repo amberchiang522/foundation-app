@@ -24,7 +24,7 @@ export function DashboardHeader({ onMenuClick, userName = "使用者", onLogout 
         <img
           src="/logo.png"
           alt="鴻勁公益慈善基金會"
-          className="h-8 w-auto"
+          className="h-8 w-auto object-contain"
           onError={(e) => {
             (e.target as HTMLImageElement).style.display = 'none'
           }}

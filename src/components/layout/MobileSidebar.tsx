@@ -63,7 +63,7 @@ export function MobileSidebar({ isOpen, onClose, isAdmin = false, isSuperAdmin =
             <img
               src="/logo.png"
               alt="鴻勁公益慈善基金會"
-              className="h-10 w-auto"
+              className="h-10 w-auto object-contain"
               onError={(e) => {
                 (e.target as HTMLImageElement).style.display = 'none'
               }}
