@@ -99,19 +99,6 @@ export function HomePage() {
           </Button>
         </div>
       </section>
-
-      {/* CTA Section */}
-      <section className="bg-muted/50 rounded-2xl p-8 md:p-12 text-center space-y-4">
-        <h2 className="text-2xl font-semibold">成為我們的一份子</h2>
-        <p className="text-muted-foreground max-w-xl mx-auto">
-          填寫申請表單，審核通過後即可開始參與志工活動。
-          <br />
-          你的每一份付出，都能為需要幫助的人帶來溫暖。
-        </p>
-        <Button asChild size="lg">
-          <Link to="/apply">立即申請</Link>
-        </Button>
-      </section>
     </div>
   )
 }

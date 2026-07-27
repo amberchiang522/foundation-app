@@ -100,6 +100,8 @@ export function ApplyPage() {
           <CardTitle className="text-2xl">志工申請</CardTitle>
           <CardDescription>
             填寫以下表單申請成為志工。審核通過後，您將收到 Email 通知並取得登入帳號。
+            <br />
+            你的每一份付出，都能為需要幫助的人帶來溫暖。
           </CardDescription>
         </CardHeader>
         <CardContent>
