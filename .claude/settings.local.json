@@ -16,7 +16,9 @@
       "Bash(git push:*)",
       "Bash(gh auth:*)",
       "Bash(git commit -m \"$\\(cat <<''EOF''\nFix TypeScript errors for Vercel deployment\n\n- Remove unused imports in ActivitiesManagePage and PlansPage\n- Add missing ''not_established'' status in ProjectsPage\n- Fix Supabase service type issues by using untyped client\n- Update transform functions to use Record<string, unknown>\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
-      "Bash(git commit:*)"
+      "Bash(git commit:*)",
+      "Bash(git remote set-url:*)",
+      "Bash(git remote remove:*)"
     ]
   }
 }
