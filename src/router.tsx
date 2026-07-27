@@ -23,6 +23,7 @@ import {
   PlansPage,
   ProjectsPage,
   ActivitiesManagePage,
+  OrganizationsPage,
   ReportsPage,
   SettingsPage,
   AccountManagePage,
@@ -102,6 +103,14 @@ export const router = createBrowserRouter([
         element: (
           <ProtectedRoute requireAdmin>
             <ActivitiesManagePage />
+          </ProtectedRoute>
+        ),
+      },
+      {
+        path: "organizations",
+        element: (
+          <ProtectedRoute requireAdmin>
+            <OrganizationsPage />
           </ProtectedRoute>
         ),
       },

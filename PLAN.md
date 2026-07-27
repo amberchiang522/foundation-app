@@ -497,3 +497,226 @@ src/
 - [x] 資料處理：志工停權、活動/計畫/專案封存
 - [x] RWD：全站完整手機支援
 - [x] 報表：儀表板 + CSV/Excel 匯出
+
+---
+
+## 重構需求 (Grill Mode 確認)
+
+### 一、機構管理 - Split Panel 重構
+
+**UI 結構：**
+- 取消對話框模式，改為 Split Panel 佈局
+- 左側 30%：機構列表
+- 右側 70%：選中機構的訪視紀錄
+
+**響應式設計：**
+- < 768px (手機)：單欄切換顯示
+- >= 768px (平板/桌面)：左右分割 30:70
+
+**機構欄位：**
+- 基本資料：名稱、類別、地址、聯絡人等
+- 狀態管理：使用軟刪除（封存）
+
+**訪視紀錄欄位：**
+- 訪視日期
+- 訪視人員（內部帳號人員）
+- 實際完成時間
+- 附件：圖片與 PDF（單檔限制大小，儲存於 Supabase Storage）
+- 備註
+
+**與專案連結：**
+- 新增專案時可指定機構
+- 機構詳情可顯示關聯專案數量
+- 專案關聯計畫會一併連結
+
+---
+
+### 二、計畫/專案管理 - Miller Columns
+
+**導航方式：**
+- 採用 Miller Columns 三欄式設計
+- 計畫 → 專案 → 專案詳情/工作流程
+
+---
+
+### 三、工作流程 - 執行人/驗收人雙角色機制
+
+**角色定義：**
+- **執行人 (Assignee)**：負責填寫資料、上傳附件
+- **驗收人 (Verifier)**：負責審核執行人提交的內容
+
+**指派方式：**
+- 可指派給「管理員標籤」或「特定個人」
+- 執行人與驗收人不能是同一人
+
+**執行流程：**
+1. 專案建立時自動進入工作流程
+2. 多人可同時提交（競爭協作模式）
+3. 任一人完成提交後，其他人仍可繼續提交
+4. 顯示方式：各別以卡片形式呈現
+
+**驗收流程：**
+1. 驗收人審核提交的內容
+2. 任一提交被驗收通過 → 該節點完成
+3. 未被驗收的其他提交 → 自動作廢
+4. 僅需一人驗收通過即可
+
+**退回機制：**
+1. 驗收不通過時必須填寫退回原因
+2. 可選擇退回給原執行人或更改執行對象
+3. 保留每一輪的內容與附件
+4. 優先顯示最新一輪，可查看歷史紀錄
+5. 附件若無更改則維持顯示
+
+**歷史追蹤：**
+- 獨立 `workflow_step_executions` 表記錄每次執行
+- 記錄執行人、提交時間、內容、附件
+- 記錄驗收人、驗收結果、時間
+
+**權限控制：**
+- 僅管理員可參與工作流程
+- 超級管理員可介入任何流程
+
+**排序與顯示：**
+- 依建立時間排序
+
+**封存連動：**
+- 專案封存時，相關工作流程節點一併封存
+
+---
+
+### 資料模型更新
+
+#### WorkflowStep（流程步驟）- 更新
+
+```typescript
+interface WorkflowStep {
+  id: string;
+  name: string;
+  type: 'status' | 'approval';
+
+  // 執行人設定
+  assigneeType: 'tag' | 'person';
+  assigneeTagId?: string;
+  assigneeUserId?: string;
+
+  // 驗收人設定
+  verifierType: 'tag' | 'person';
+  verifierTagId?: string;
+  verifierUserId?: string;
+
+  // 狀態
+  status: 'pending' | 'in_progress' | 'completed' | 'archived';
+}
+```
+
+#### WorkflowStepExecution（流程步驟執行紀錄）- 新增
+
+```typescript
+interface WorkflowStepExecution {
+  id: string;
+  stepId: string;
+  projectId: string;
+  round: number;               // 第幾輪執行
+
+  // 執行資料
+  executedBy: string;          // 執行人 ID
+  executedAt: Date;
+  content: string;             // 填寫內容
+  attachments: string[];       // 附件 URLs
+
+  // 驗收結果
+  verificationStatus: 'pending' | 'approved' | 'rejected' | 'voided';
+  verifiedBy?: string;         // 驗收人 ID
+  verifiedAt?: Date;
+  rejectReason?: string;       // 退回原因
+
+  createdAt: Date;
+}
+```
+
+#### Organization（機構）
+
+```typescript
+interface Organization {
+  id: string;
+  name: string;
+  category: OrganizationCategory;
+  address: string;
+  phone?: string;
+  contactPerson?: string;
+  contactPhone?: string;
+  email?: string;
+  notes?: string;
+
+  status: 'active' | 'archived';  // 軟刪除
+  createdAt: Date;
+  updatedAt: Date;
+}
+```
+
+#### VisitRecord（訪視紀錄）
+
+```typescript
+interface VisitRecord {
+  id: string;
+  organizationId: string;
+
+  visitDate: Date;
+  visitorId: string;           // 訪視人員（內部帳號）
+  completedAt?: Date;          // 實際完成時間
+  notes?: string;              // 備註
+  attachments: string[];       // 附件 URLs（圖片/PDF）
+
+  createdAt: Date;
+  updatedAt: Date;
+}
+```
+
+#### Project（專案）- 更新
+
+```typescript
+interface Project {
+  id: string;
+  planId: string;
+  organizationId?: string;     // 新增：關聯機構
+  name: string;
+  description: string;
+  // ... 其他欄位不變
+}
+```
+
+---
+
+### SQL 遷移清單
+
+1. `14_workflow_executions.sql` - 工作流程執行紀錄表
+2. 更新 `13_organizations.sql` - 確保 soft delete 支援
+3. 更新 `projects` 表 - 新增 `organization_id` 欄位
+
+---
+
+### 實作優先順序
+
+1. **機構管理 Split Panel 重構**
+   - 修改 OrganizationsPage.tsx 為 Split Panel 佈局
+   - 左側機構列表元件
+   - 右側訪視紀錄元件
+   - 響應式切換邏輯
+
+2. **工作流程雙角色機制**
+   - 建立 workflow_step_executions 表
+   - 更新 WorkflowStep 型別
+   - 實作執行人提交功能
+   - 實作驗收人審核功能
+   - 實作退回與重新提交流程
+   - 歷史紀錄查看介面
+
+3. **計畫/專案 Miller Columns**
+   - 三欄式導航元件
+   - 計畫列表 → 專案列表 → 專案詳情
+
+4. **專案與機構連結**
+   - 專案表新增 organization_id
+   - 專案建立時可選擇機構
+   - 機構詳情顯示關聯專案

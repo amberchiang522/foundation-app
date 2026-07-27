@@ -19,6 +19,7 @@ function transformProject(row: Record<string, unknown>): Project {
   return {
     id: row.id as string,
     planId: row.plan_id as string,
+    organizationId: (row.organization_id as string) || undefined,
     name: row.name as string,
     description: (row.description as string) || '',
     projectType: (row.project_type as string) || '',
@@ -183,6 +184,7 @@ export const supabaseProjectService = {
       .from('projects')
       .insert({
         plan_id: projectData.planId,
+        organization_id: projectData.organizationId || null,
         name: projectData.name,
         description: projectData.description,
         project_type: projectData.projectType,
@@ -208,6 +210,7 @@ export const supabaseProjectService = {
     const updateData: Record<string, unknown> = {}
     if (projectData.name !== undefined) updateData.name = projectData.name
     if (projectData.description !== undefined) updateData.description = projectData.description
+    if (projectData.organizationId !== undefined) updateData.organization_id = projectData.organizationId || null
     if (projectData.projectType !== undefined) updateData.project_type = projectData.projectType
     if (projectData.budgetAmount !== undefined) updateData.budget_amount = projectData.budgetAmount
     if (projectData.resultImages !== undefined) updateData.result_images = projectData.resultImages

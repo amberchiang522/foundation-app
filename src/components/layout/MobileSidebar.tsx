@@ -14,6 +14,7 @@ import {
   BarChart3,
   Settings,
   Shield,
+  Building2,
 } from "lucide-react"
 
 interface MobileSidebarProps {
@@ -34,6 +35,7 @@ const adminNavItems = [
   { href: "/dashboard/volunteers", icon: Users, label: "志工管理" },
   { href: "/dashboard/applications", icon: FileCheck, label: "申請審核" },
   { href: "/dashboard/plans", icon: FolderKanban, label: "計畫管理" },
+  { href: "/dashboard/organizations", icon: Building2, label: "機構管理" },
   { href: "/dashboard/activities", icon: CalendarDays, label: "活動管理" },
   { href: "/dashboard/reports", icon: BarChart3, label: "報表中心" },
   { href: "/dashboard/settings", icon: Settings, label: "系統設定" },

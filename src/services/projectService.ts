@@ -73,6 +73,7 @@ const mockProjectService = {
 
     const newProject: Project = {
       ...data,
+      organizationId: data.organizationId || undefined,
       id: `project-${Date.now()}`,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
