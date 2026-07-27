@@ -72,7 +72,7 @@ export const supabaseWorkflowService = {
   },
 
   // Get pending executions for a user (steps they need to verify)
-  async getPendingVerifications(userId: string): Promise<WorkflowStepExecutionWithDetails[]> {
+  async getPendingVerifications(_userId: string): Promise<WorkflowStepExecutionWithDetails[]> {
     const { data, error } = await supabase
       .from('workflow_step_executions')
       .select(`
@@ -163,9 +163,9 @@ export const supabaseWorkflowService = {
   async startNewRound(
     projectId: string,
     stepId: string,
-    assigneeType?: 'tag' | 'person',
-    assigneeTagId?: string,
-    assigneeUserId?: string
+    _assigneeType?: 'tag' | 'person',
+    _assigneeTagId?: string,
+    _assigneeUserId?: string
   ): Promise<number> {
     const { data: roundData } = await supabase
       .from('workflow_step_executions')
@@ -184,7 +184,7 @@ export const supabaseWorkflowService = {
     projectId: string,
     stepId: string,
     userId: string,
-    userAdminTags?: string[]
+    _userAdminTags?: string[]
   ): Promise<boolean> {
     // Get step definition
     const { data: step } = await supabase
@@ -235,7 +235,7 @@ export const supabaseWorkflowService = {
     projectId: string,
     stepId: string,
     userId: string,
-    userAdminTags?: string[]
+    _userAdminTags?: string[]
   ): Promise<boolean> {
     // Get step definition
     const { data: step } = await supabase

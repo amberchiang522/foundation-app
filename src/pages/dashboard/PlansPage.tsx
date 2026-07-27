@@ -90,7 +90,7 @@ export function PlansPage() {
   const [isProjectFormOpen, setIsProjectFormOpen] = useState(false)
   const [editingProject, setEditingProject] = useState<Project | null>(null)
   const [isTemplateModalOpen, setIsTemplateModalOpen] = useState(false)
-  const [viewingTemplateWorkflow, setViewingTemplateWorkflow] = useState<WorkflowStep[] | null>(null)
+  const [viewingTemplateWorkflow, _setViewingTemplateWorkflow] = useState<WorkflowStep[] | null>(null)
 
   // Plan form state
   const [planFormData, setPlanFormData] = useState({
@@ -114,7 +114,7 @@ export function PlansPage() {
 
   // Workflow execution state
   const [stepExecutions, setStepExecutions] = useState<WorkflowStepExecutionWithDetails[]>([])
-  const [isLoadingExecutions, setIsLoadingExecutions] = useState(false)
+  const [_isLoadingExecutions, setIsLoadingExecutions] = useState(false)
   const [isSubmitDialogOpen, setIsSubmitDialogOpen] = useState(false)
   const [isVerifyDialogOpen, setIsVerifyDialogOpen] = useState(false)
   const [selectedExecution, setSelectedExecution] = useState<WorkflowStepExecutionWithDetails | null>(null)
@@ -861,7 +861,6 @@ export function PlansPage() {
               <h3 className="font-medium mb-3">流程進度</h3>
               <div className="flex items-center justify-center gap-2 flex-wrap py-4 bg-muted/30 rounded-lg">
                 {selectedProject.workflow.map((step, index) => {
-                  const isCurrentStep = index === selectedProject.currentStep
                   const hasSubTasks = step.subTasks && step.subTasks.length > 0
                   const subTasksCompleted = step.subTasks?.filter((st) => st.completed).length || 0
                   const totalSubTasks = step.subTasks?.length || 0
@@ -1123,7 +1122,7 @@ export function PlansPage() {
                       step.status === "not_established" ||
                       (step.status === "in_progress" && index === selectedProject.currentStep)
                   )
-                  .map((step, idx) => {
+                  .map((step, _idx) => {
                     const originalIndex = selectedProject.workflow.indexOf(step)
                     const isRejected = step.status === "rejected" || step.status === "not_established"
 

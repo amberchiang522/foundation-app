@@ -60,7 +60,7 @@ const mockWorkflowService = {
   },
 
   // Get pending executions for a user (steps they need to verify)
-  async getPendingVerifications(userId: string): Promise<WorkflowStepExecutionWithDetails[]> {
+  async getPendingVerifications(_userId: string): Promise<WorkflowStepExecutionWithDetails[]> {
     await new Promise(resolve => setTimeout(resolve, 200))
 
     // In real implementation, would check if user can verify based on verifier settings
@@ -162,9 +162,9 @@ const mockWorkflowService = {
   async startNewRound(
     projectId: string,
     stepId: string,
-    assigneeType?: 'tag' | 'person',
-    assigneeTagId?: string,
-    assigneeUserId?: string
+    _assigneeType?: 'tag' | 'person',
+    _assigneeTagId?: string,
+    _assigneeUserId?: string
   ): Promise<number> {
     await new Promise(resolve => setTimeout(resolve, 200))
 
@@ -180,10 +180,10 @@ const mockWorkflowService = {
 
   // Check if user can execute a step
   async canExecuteStep(
-    projectId: string,
-    stepId: string,
-    userId: string,
-    userAdminTags?: string[]
+    _projectId: string,
+    _stepId: string,
+    _userId: string,
+    _userAdminTags?: string[]
   ): Promise<boolean> {
     // In mock mode, always return true for admins
     // Real implementation would check assignee settings
@@ -192,10 +192,10 @@ const mockWorkflowService = {
 
   // Check if user can verify a step
   async canVerifyStep(
-    projectId: string,
-    stepId: string,
-    userId: string,
-    userAdminTags?: string[]
+    _projectId: string,
+    _stepId: string,
+    _userId: string,
+    _userAdminTags?: string[]
   ): Promise<boolean> {
     // In mock mode, always return true for admins
     // Real implementation would check verifier settings
