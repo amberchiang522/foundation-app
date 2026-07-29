@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react"
+import { useNavigate } from "react-router-dom"
 import { format } from "date-fns"
 import { zhTW } from "date-fns/locale"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -68,6 +69,7 @@ type MobileView = "plans" | "projects" | "detail"
 
 export function PlansPage() {
   const { user } = useAuth()
+  const navigate = useNavigate()
   const [plans, setPlans] = useState<Plan[]>([])
   const [projects, setProjects] = useState<Project[]>([])
   const [templates, setTemplates] = useState<WorkflowTemplate[]>([])
@@ -646,32 +648,18 @@ export function PlansPage() {
                         </span>
                       </div>
                     </div>
-                    <div className="flex gap-0.5 shrink-0">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-8 w-8 p-0"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          openPlanView(plan)
-                        }}
-                        title="檢視計畫"
-                      >
-                        <Eye className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-8 w-8 p-0"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          openPlanForm(plan)
-                        }}
-                        title="編輯流程"
-                      >
-                        <EditIcon className="h-4 w-4" />
-                      </Button>
-                    </div>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 w-8 p-0 shrink-0"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        openPlanView(plan)
+                      }}
+                      title="檢視計畫"
+                    >
+                      <Eye className="h-4 w-4" />
+                    </Button>
                   </div>
                 </div>
               )
@@ -1910,7 +1898,7 @@ export function PlansPage() {
                   </Badge>
                 </div>
                 {viewingPlan.description && (
-                  <p className="text-sm text-muted-foreground">{viewingPlan.description}</p>
+                  <p className="text-sm text-muted-foreground whitespace-pre-wrap">{viewingPlan.description}</p>
                 )}
               </div>
 
@@ -1961,10 +1949,15 @@ export function PlansPage() {
                     {viewingPlanOrgs.map(org => (
                       <div
                         key={org.id}
-                        className="flex items-center gap-2 p-3 bg-muted/50 rounded-lg"
+                        className="flex items-center gap-2 p-3 bg-muted/50 rounded-lg cursor-pointer hover:bg-muted transition-colors"
+                        onClick={() => {
+                          setIsPlanViewOpen(false)
+                          navigate(`/dashboard/organizations?org=${org.id}`)
+                        }}
                       >
                         <Building2 className="h-4 w-4 text-muted-foreground shrink-0" />
                         <span className="text-sm truncate">{org.name}</span>
+                        <ChevronRight className="h-4 w-4 text-muted-foreground ml-auto shrink-0" />
                       </div>
                     ))}
                   </div>

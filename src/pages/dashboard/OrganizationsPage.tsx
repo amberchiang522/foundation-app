@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from "react"
-import { useNavigate } from "react-router-dom"
+import { useNavigate, useSearchParams } from "react-router-dom"
 import { format } from "date-fns"
 import { zhTW } from "date-fns/locale"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -62,6 +62,7 @@ import { cn } from "@/lib/utils"
 export function OrganizationsPage() {
   const { user } = useAuth()
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
   const [organizations, setOrganizations] = useState<OrganizationWithDetails[]>([])
   const [filteredOrganizations, setFilteredOrganizations] = useState<OrganizationWithDetails[]>([])
   const [isLoading, setIsLoading] = useState(true)
@@ -146,6 +147,19 @@ export function OrganizationsPage() {
   useEffect(() => {
     loadData()
   }, [])
+
+  // Handle URL parameter to select organization
+  useEffect(() => {
+    const orgId = searchParams.get("org")
+    if (orgId && organizations.length > 0 && !isLoading) {
+      const org = organizations.find(o => o.id === orgId)
+      if (org) {
+        handleSelectOrg(org)
+        // Clear the URL parameter after selection
+        setSearchParams({})
+      }
+    }
+  }, [organizations, isLoading, searchParams])
 
   const loadData = async () => {
     try {
