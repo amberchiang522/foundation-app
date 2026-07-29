@@ -248,6 +248,7 @@ export interface Activity {
   description: string
   date: string
   location: string
+  locationUrl?: string  // Google Maps link
   type: string
 
   // Images

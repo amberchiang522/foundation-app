@@ -60,6 +60,24 @@ const mockActivityService = {
     return this.updateActivity(id, { status: 'archived' })
   },
 
+  async deleteActivity(id: string): Promise<boolean> {
+    await new Promise(resolve => setTimeout(resolve, 200))
+    const index = activities.findIndex(a => a.id === id)
+    if (index === -1) return false
+
+    // Remove related registrations
+    const activityId = activities[index].id
+    const regIndexes = registrations
+      .map((r, i) => r.activityId === activityId ? i : -1)
+      .filter(i => i !== -1)
+      .reverse()
+    regIndexes.forEach(i => registrations.splice(i, 1))
+
+    // Remove activity
+    activities.splice(index, 1)
+    return true
+  },
+
   // Registrations
   async getRegistrationsByActivity(activityId: string): Promise<ActivityRegistration[]> {
     await new Promise(resolve => setTimeout(resolve, 200))

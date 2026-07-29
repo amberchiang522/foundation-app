@@ -9,6 +9,7 @@ function transformActivity(row: Record<string, unknown>): Activity {
     description: (row.description as string) || '',
     date: row.date as string,
     location: (row.location as string) || '',
+    locationUrl: (row.location_url as string) || undefined,
     type: (row.type as string) || '',
     coverImage: row.cover_image as Activity['coverImage'],
     contentImages: (row.content_images as Activity['contentImages']) || [],
@@ -106,6 +107,7 @@ export const supabaseActivityService = {
         description: activityData.description,
         date: activityData.date,
         location: activityData.location,
+        location_url: activityData.locationUrl,
         type: activityData.type,
         cover_image: activityData.coverImage,
         content_images: activityData.contentImages,
@@ -130,6 +132,7 @@ export const supabaseActivityService = {
     if (activityData.description !== undefined) updateData.description = activityData.description
     if (activityData.date !== undefined) updateData.date = activityData.date
     if (activityData.location !== undefined) updateData.location = activityData.location
+    if (activityData.locationUrl !== undefined) updateData.location_url = activityData.locationUrl
     if (activityData.type !== undefined) updateData.type = activityData.type
     if (activityData.coverImage !== undefined) updateData.cover_image = activityData.coverImage
     if (activityData.contentImages !== undefined) updateData.content_images = activityData.contentImages
@@ -153,6 +156,26 @@ export const supabaseActivityService = {
 
   async archiveActivity(id: string): Promise<Activity | null> {
     return this.updateActivity(id, { status: 'archived' })
+  },
+
+  async deleteActivity(id: string): Promise<boolean> {
+    // First delete related registrations
+    await supabase
+      .from('activity_registrations')
+      .delete()
+      .eq('activity_id', id)
+
+    // Then delete the activity
+    const { error } = await supabase
+      .from('activities')
+      .delete()
+      .eq('id', id)
+
+    if (error) {
+      console.error('Error deleting activity:', error)
+      return false
+    }
+    return true
   },
 
   // Registrations

@@ -34,7 +34,7 @@ import { ImageUploader, MultiImageUploader } from "@/components/upload"
 import { useAuth } from "@/contexts/AuthContext"
 import { activityService, userService, type ImageUploadResult } from "@/services"
 import type { Activity, ActivityRegistration, User, ImageData } from "@/types"
-import { Plus, Edit, Users, Archive, Calendar, MapPin, Clock } from "lucide-react"
+import { Plus, Edit, Users, Archive, Calendar, MapPin, Clock, Trash2, ExternalLink } from "lucide-react"
 
 const statusLabels: Record<Activity["status"], string> = {
   upcoming: "即將開始",
@@ -63,6 +63,7 @@ export function ActivitiesManagePage() {
     description: "",
     date: "",
     location: "",
+    locationUrl: "",
     type: "",
     capacity: "",
     registrationMode: "direct" as "direct" | "approval",
@@ -93,6 +94,7 @@ export function ActivitiesManagePage() {
       description: "",
       date: "",
       location: "",
+      locationUrl: "",
       type: "",
       capacity: "",
       registrationMode: "direct",
@@ -109,6 +111,7 @@ export function ActivitiesManagePage() {
       description: activity.description,
       date: activity.date.slice(0, 16), // Format for datetime-local
       location: activity.location,
+      locationUrl: activity.locationUrl || "",
       type: activity.type,
       capacity: String(activity.capacity),
       registrationMode: activity.registrationMode,
@@ -134,6 +137,7 @@ export function ActivitiesManagePage() {
         description: formData.description,
         date: new Date(formData.date).toISOString(),
         location: formData.location,
+        locationUrl: formData.locationUrl || undefined,
         type: formData.type || "一般",
         capacity: parseInt(formData.capacity),
         registrationMode: formData.registrationMode,
@@ -167,6 +171,19 @@ export function ActivitiesManagePage() {
       await loadActivities()
     } catch (error) {
       console.error("Failed to archive activity:", error)
+    }
+  }
+
+  const handleDelete = async (activity: Activity) => {
+    if (!confirm("確定要永久刪除此活動嗎？此操作無法復原。")) return
+
+    try {
+      await activityService.deleteActivity(activity.id)
+      await loadActivities()
+      setIsDetailOpen(false)
+    } catch (error) {
+      console.error("Failed to delete activity:", error)
+      alert("刪除失敗，請稍後再試")
     }
   }
 
@@ -383,16 +400,31 @@ export function ActivitiesManagePage() {
                         <Badge variant="secondary">{statusLabels[activity.status]}</Badge>
                       </TableCell>
                       <TableCell className="text-right">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            openRegistrations(activity)
-                          }}
-                        >
-                          <Users className="h-4 w-4" />
-                        </Button>
+                        <div className="flex justify-end gap-1">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              openRegistrations(activity)
+                            }}
+                          >
+                            <Users className="h-4 w-4" />
+                          </Button>
+                          {activity.status === "archived" && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="text-destructive hover:text-destructive"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                handleDelete(activity)
+                              }}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          )}
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))
@@ -449,6 +481,18 @@ export function ActivitiesManagePage() {
                 onChange={(e) => setFormData({ ...formData, location: e.target.value })}
                 placeholder="例如：中正公園"
               />
+            </div>
+
+            <div className="space-y-2">
+              <Label>Google Maps 連結</Label>
+              <Input
+                value={formData.locationUrl}
+                onChange={(e) => setFormData({ ...formData, locationUrl: e.target.value })}
+                placeholder="https://maps.google.com/..."
+              />
+              <p className="text-xs text-muted-foreground">
+                填入後，地點會變成可點擊的連結
+              </p>
             </div>
 
             <div className="grid grid-cols-2 gap-4">
@@ -679,7 +723,19 @@ export function ActivitiesManagePage() {
                   </div>
                   <div>
                     <p className="text-sm text-muted-foreground">地點</p>
-                    <p className="font-medium">{selectedActivity.location}</p>
+                    {selectedActivity.locationUrl ? (
+                      <a
+                        href={selectedActivity.locationUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="font-medium text-primary hover:underline flex items-center gap-1"
+                      >
+                        {selectedActivity.location}
+                        <ExternalLink className="h-3 w-3" />
+                      </a>
+                    ) : (
+                      <p className="font-medium">{selectedActivity.location}</p>
+                    )}
                   </div>
                 </div>
 
@@ -746,16 +802,26 @@ export function ActivitiesManagePage() {
                   <Users className="h-4 w-4 mr-1" />
                   查看報名
                 </Button>
-                <Button
-                  variant="outline"
-                  onClick={() => {
-                    setIsDetailOpen(false)
-                    handleArchive(selectedActivity)
-                  }}
-                >
-                  <Archive className="h-4 w-4 mr-1" />
-                  封存
-                </Button>
+                {selectedActivity.status === "archived" ? (
+                  <Button
+                    variant="destructive"
+                    onClick={() => handleDelete(selectedActivity)}
+                  >
+                    <Trash2 className="h-4 w-4 mr-1" />
+                    刪除
+                  </Button>
+                ) : (
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setIsDetailOpen(false)
+                      handleArchive(selectedActivity)
+                    }}
+                  >
+                    <Archive className="h-4 w-4 mr-1" />
+                    封存
+                  </Button>
+                )}
               </DialogFooter>
             </div>
           )}
