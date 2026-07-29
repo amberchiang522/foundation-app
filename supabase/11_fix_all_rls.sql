@@ -3,6 +3,7 @@
 -- =====================================================
 
 -- 確保 is_admin 函數存在且使用 SECURITY DEFINER
+-- 包含 admin 和 super_admin 兩種角色
 CREATE OR REPLACE FUNCTION public.is_admin()
 RETURNS BOOLEAN
 LANGUAGE sql
@@ -12,7 +13,7 @@ STABLE
 AS $$
   SELECT EXISTS (
     SELECT 1 FROM public.profiles
-    WHERE id = auth.uid() AND role = 'admin'
+    WHERE id = auth.uid() AND role IN ('admin', 'super_admin')
   );
 $$;
 
