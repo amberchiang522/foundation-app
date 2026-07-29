@@ -1,4 +1,6 @@
 import imageCompression from 'browser-image-compression'
+import { useSupabase } from '@/lib/supabase'
+import { supabaseImageService } from './supabase/imageService'
 
 // Image Types
 export type ImageType =
@@ -225,5 +227,6 @@ class MockImageService implements ImageService {
   }
 }
 
-// Export singleton instance
-export const imageService = new MockImageService()
+// Export the appropriate service based on feature flag
+const mockImageService = new MockImageService()
+export const imageService = useSupabase ? supabaseImageService : mockImageService
