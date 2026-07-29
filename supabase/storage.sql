@@ -68,11 +68,13 @@ ON CONFLICT (id) DO UPDATE SET
 -- =====================================================
 
 -- Anyone can view avatars (public bucket)
+DROP POLICY IF EXISTS "Avatars are publicly accessible" ON storage.objects;
 CREATE POLICY "Avatars are publicly accessible"
   ON storage.objects FOR SELECT
   USING (bucket_id = 'avatars');
 
 -- Users can upload their own avatar
+DROP POLICY IF EXISTS "Users can upload own avatar" ON storage.objects;
 CREATE POLICY "Users can upload own avatar"
   ON storage.objects FOR INSERT
   TO authenticated
@@ -82,6 +84,7 @@ CREATE POLICY "Users can upload own avatar"
   );
 
 -- Users can update their own avatar
+DROP POLICY IF EXISTS "Users can update own avatar" ON storage.objects;
 CREATE POLICY "Users can update own avatar"
   ON storage.objects FOR UPDATE
   TO authenticated
@@ -91,6 +94,7 @@ CREATE POLICY "Users can update own avatar"
   );
 
 -- Users can delete their own avatar
+DROP POLICY IF EXISTS "Users can delete own avatar" ON storage.objects;
 CREATE POLICY "Users can delete own avatar"
   ON storage.objects FOR DELETE
   TO authenticated
@@ -104,11 +108,13 @@ CREATE POLICY "Users can delete own avatar"
 -- =====================================================
 
 -- Anyone can view activity images (public bucket)
+DROP POLICY IF EXISTS "Activity images are publicly accessible" ON storage.objects;
 CREATE POLICY "Activity images are publicly accessible"
   ON storage.objects FOR SELECT
   USING (bucket_id = 'activities');
 
--- Admins can upload activity images
+-- Admins can upload activity images (including super_admin)
+DROP POLICY IF EXISTS "Admins can upload activity images" ON storage.objects;
 CREATE POLICY "Admins can upload activity images"
   ON storage.objects FOR INSERT
   TO authenticated
@@ -116,11 +122,12 @@ CREATE POLICY "Admins can upload activity images"
     bucket_id = 'activities' AND
     EXISTS (
       SELECT 1 FROM public.profiles
-      WHERE id = auth.uid() AND role = 'admin'
+      WHERE id = auth.uid() AND role IN ('admin', 'super_admin')
     )
   );
 
 -- Admins can update activity images
+DROP POLICY IF EXISTS "Admins can update activity images" ON storage.objects;
 CREATE POLICY "Admins can update activity images"
   ON storage.objects FOR UPDATE
   TO authenticated
@@ -128,11 +135,12 @@ CREATE POLICY "Admins can update activity images"
     bucket_id = 'activities' AND
     EXISTS (
       SELECT 1 FROM public.profiles
-      WHERE id = auth.uid() AND role = 'admin'
+      WHERE id = auth.uid() AND role IN ('admin', 'super_admin')
     )
   );
 
 -- Admins can delete activity images
+DROP POLICY IF EXISTS "Admins can delete activity images" ON storage.objects;
 CREATE POLICY "Admins can delete activity images"
   ON storage.objects FOR DELETE
   TO authenticated
@@ -140,7 +148,7 @@ CREATE POLICY "Admins can delete activity images"
     bucket_id = 'activities' AND
     EXISTS (
       SELECT 1 FROM public.profiles
-      WHERE id = auth.uid() AND role = 'admin'
+      WHERE id = auth.uid() AND role IN ('admin', 'super_admin')
     )
   );
 
@@ -149,11 +157,13 @@ CREATE POLICY "Admins can delete activity images"
 -- =====================================================
 
 -- Anyone can view project images (public bucket)
+DROP POLICY IF EXISTS "Project images are publicly accessible" ON storage.objects;
 CREATE POLICY "Project images are publicly accessible"
   ON storage.objects FOR SELECT
   USING (bucket_id = 'projects');
 
 -- Admins can manage project images
+DROP POLICY IF EXISTS "Admins can upload project images" ON storage.objects;
 CREATE POLICY "Admins can upload project images"
   ON storage.objects FOR INSERT
   TO authenticated
@@ -161,10 +171,11 @@ CREATE POLICY "Admins can upload project images"
     bucket_id = 'projects' AND
     EXISTS (
       SELECT 1 FROM public.profiles
-      WHERE id = auth.uid() AND role = 'admin'
+      WHERE id = auth.uid() AND role IN ('admin', 'super_admin')
     )
   );
 
+DROP POLICY IF EXISTS "Admins can update project images" ON storage.objects;
 CREATE POLICY "Admins can update project images"
   ON storage.objects FOR UPDATE
   TO authenticated
@@ -172,10 +183,11 @@ CREATE POLICY "Admins can update project images"
     bucket_id = 'projects' AND
     EXISTS (
       SELECT 1 FROM public.profiles
-      WHERE id = auth.uid() AND role = 'admin'
+      WHERE id = auth.uid() AND role IN ('admin', 'super_admin')
     )
   );
 
+DROP POLICY IF EXISTS "Admins can delete project images" ON storage.objects;
 CREATE POLICY "Admins can delete project images"
   ON storage.objects FOR DELETE
   TO authenticated
@@ -183,7 +195,7 @@ CREATE POLICY "Admins can delete project images"
     bucket_id = 'projects' AND
     EXISTS (
       SELECT 1 FROM public.profiles
-      WHERE id = auth.uid() AND role = 'admin'
+      WHERE id = auth.uid() AND role IN ('admin', 'super_admin')
     )
   );
 
@@ -192,12 +204,14 @@ CREATE POLICY "Admins can delete project images"
 -- =====================================================
 
 -- Authenticated users can view attachments
+DROP POLICY IF EXISTS "Authenticated can view attachments" ON storage.objects;
 CREATE POLICY "Authenticated can view attachments"
   ON storage.objects FOR SELECT
   TO authenticated
   USING (bucket_id = 'attachments');
 
 -- Admins can manage attachments
+DROP POLICY IF EXISTS "Admins can upload attachments" ON storage.objects;
 CREATE POLICY "Admins can upload attachments"
   ON storage.objects FOR INSERT
   TO authenticated
@@ -205,10 +219,11 @@ CREATE POLICY "Admins can upload attachments"
     bucket_id = 'attachments' AND
     EXISTS (
       SELECT 1 FROM public.profiles
-      WHERE id = auth.uid() AND role = 'admin'
+      WHERE id = auth.uid() AND role IN ('admin', 'super_admin')
     )
   );
 
+DROP POLICY IF EXISTS "Admins can update attachments" ON storage.objects;
 CREATE POLICY "Admins can update attachments"
   ON storage.objects FOR UPDATE
   TO authenticated
@@ -216,10 +231,11 @@ CREATE POLICY "Admins can update attachments"
     bucket_id = 'attachments' AND
     EXISTS (
       SELECT 1 FROM public.profiles
-      WHERE id = auth.uid() AND role = 'admin'
+      WHERE id = auth.uid() AND role IN ('admin', 'super_admin')
     )
   );
 
+DROP POLICY IF EXISTS "Admins can delete attachments" ON storage.objects;
 CREATE POLICY "Admins can delete attachments"
   ON storage.objects FOR DELETE
   TO authenticated
@@ -227,6 +243,6 @@ CREATE POLICY "Admins can delete attachments"
     bucket_id = 'attachments' AND
     EXISTS (
       SELECT 1 FROM public.profiles
-      WHERE id = auth.uid() AND role = 'admin'
+      WHERE id = auth.uid() AND role IN ('admin', 'super_admin')
     )
   );
