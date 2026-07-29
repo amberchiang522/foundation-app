@@ -34,6 +34,7 @@ import type {
   OrganizationCategory,
   User,
   Project,
+  Plan,
 } from "@/types"
 import { OrganizationCategoryLabels, VisitStatusLabels } from "@/types"
 import {
@@ -67,7 +68,8 @@ export function OrganizationsPage() {
   const [searchQuery, setSearchQuery] = useState("")
   const [categoryFilter, setCategoryFilter] = useState<string>("all")
 
-  // Projects for linking
+  // Plans for linking (many-to-many)
+  const [plans, setPlans] = useState<Plan[]>([])
   const [projects, setProjects] = useState<Project[]>([])
   const [allUsers, setAllUsers] = useState<User[]>([])
 
@@ -92,7 +94,7 @@ export function OrganizationsPage() {
     website: "",
     lineId: "",
     notes: "",
-    projectId: "",
+    planIds: [] as string[],
   })
   const [isSubmitting, setIsSubmitting] = useState(false)
 
@@ -112,6 +114,8 @@ export function OrganizationsPage() {
   // Quick upcoming visit dialog (from left panel, needs org selection)
   const [isQuickUpcomingDialogOpen, setIsQuickUpcomingDialogOpen] = useState(false)
   const [quickUpcomingOrgId, setQuickUpcomingOrgId] = useState<string>("")
+  const [quickUpcomingOrgMode, setQuickUpcomingOrgMode] = useState<"select" | "new">("select")
+  const [quickUpcomingNewOrgName, setQuickUpcomingNewOrgName] = useState("")
   const [quickUpcomingForm, setQuickUpcomingForm] = useState({
     plannedDate: format(new Date(), "yyyy-MM-dd"),
     plannedTime: "",
@@ -145,14 +149,16 @@ export function OrganizationsPage() {
 
   const loadData = async () => {
     try {
-      const [orgsData, projectsData, usersData, pendingData] = await Promise.all([
+      const [orgsData, plansData, projectsData, usersData, pendingData] = await Promise.all([
         organizationService.getOrganizations(),
+        projectService.getPlans(),
         projectService.getProjects(),
-        userService.getUsers(),
+        userService.getAllStaff(),
         organizationService.getPendingUpcomingVisits(),
       ])
       setOrganizations(orgsData)
       setFilteredOrganizations(orgsData)
+      setPlans(plansData)
       setProjects(projectsData)
       setAllUsers(usersData)
       setPendingVisits(pendingData)
@@ -225,7 +231,7 @@ export function OrganizationsPage() {
       website: "",
       lineId: "",
       notes: "",
-      projectId: "",
+      planIds: [],
     })
     setIsOrgDialogOpen(true)
   }
@@ -241,9 +247,19 @@ export function OrganizationsPage() {
       website: org.website || "",
       lineId: org.lineId || "",
       notes: org.notes || "",
-      projectId: org.projectId || "",
+      planIds: org.planIds || [],
     })
     setIsOrgDialogOpen(true)
+  }
+
+  // Toggle plan selection
+  const togglePlanSelection = (planId: string) => {
+    setOrgForm(prev => ({
+      ...prev,
+      planIds: prev.planIds.includes(planId)
+        ? prev.planIds.filter(id => id !== planId)
+        : [...prev.planIds, planId]
+    }))
   }
 
   const handleSubmitOrg = async () => {
@@ -257,12 +273,12 @@ export function OrganizationsPage() {
       if (editingOrg) {
         await organizationService.updateOrganization(editingOrg.id, {
           ...orgForm,
-          projectId: orgForm.projectId || undefined,
+          planIds: orgForm.planIds,
         })
       } else {
         await organizationService.createOrganization({
           ...orgForm,
-          projectId: orgForm.projectId || undefined,
+          planIds: orgForm.planIds,
           createdBy: user!.id,
         })
       }
@@ -309,6 +325,8 @@ export function OrganizationsPage() {
   // Quick upcoming visit from left panel (needs to select organization)
   const handleQuickCreateUpcoming = () => {
     setQuickUpcomingOrgId("")
+    setQuickUpcomingOrgMode("select")
+    setQuickUpcomingNewOrgName("")
     setQuickUpcomingForm({
       plannedDate: format(new Date(), "yyyy-MM-dd"),
       plannedTime: "",
@@ -350,10 +368,21 @@ export function OrganizationsPage() {
 
   // Submit quick upcoming visit (from left panel with org selection)
   const handleSubmitQuickUpcomingVisit = async () => {
-    if (!quickUpcomingOrgId) {
-      alert("請選擇機構")
-      return
+    let targetOrgId = quickUpcomingOrgId
+
+    // If creating new org
+    if (quickUpcomingOrgMode === "new") {
+      if (!quickUpcomingNewOrgName.trim()) {
+        alert("請輸入機構名稱")
+        return
+      }
+    } else {
+      if (!quickUpcomingOrgId) {
+        alert("請選擇機構")
+        return
+      }
     }
+
     if (quickUpcomingForm.assignedUserIds.length === 0) {
       alert("請選擇負責人員")
       return
@@ -361,8 +390,19 @@ export function OrganizationsPage() {
 
     setIsSubmitting(true)
     try {
+      // Create new org if needed
+      if (quickUpcomingOrgMode === "new") {
+        const newOrg = await organizationService.createOrganization({
+          name: quickUpcomingNewOrgName.trim(),
+          category: "other",
+          planIds: [],
+          createdBy: user!.id,
+        })
+        targetOrgId = newOrg.id
+      }
+
       await organizationService.createUpcomingVisit({
-        organizationId: quickUpcomingOrgId,
+        organizationId: targetOrgId,
         ...quickUpcomingForm,
         plannedTime: quickUpcomingForm.plannedTime || undefined,
         status: "pending",
@@ -370,7 +410,7 @@ export function OrganizationsPage() {
       })
 
       // Reload upcoming visits if we have a selected org that matches
-      if (selectedOrg && selectedOrg.id === quickUpcomingOrgId) {
+      if (selectedOrg && selectedOrg.id === targetOrgId) {
         const upcoming = await organizationService.getUpcomingVisits(selectedOrg.id)
         setUpcomingVisits(upcoming)
       }
@@ -1060,21 +1100,27 @@ export function OrganizationsPage() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="org-project">對接計畫</Label>
-              <Select
-                value={orgForm.projectId}
-                onValueChange={(v) => setOrgForm(prev => ({ ...prev, projectId: v }))}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="選擇計畫（可選）" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="">無</SelectItem>
-                  {projects.map(p => (
-                    <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <Label>對接計畫</Label>
+              <div className="flex flex-wrap gap-2 p-3 border rounded-md min-h-[42px]">
+                {plans.filter(p => p.status === 'active').map(plan => (
+                  <Badge
+                    key={plan.id}
+                    variant={orgForm.planIds.includes(plan.id) ? "default" : "outline"}
+                    className="cursor-pointer"
+                    onClick={() => togglePlanSelection(plan.id)}
+                  >
+                    {plan.name}
+                  </Badge>
+                ))}
+                {plans.filter(p => p.status === 'active').length === 0 && (
+                  <span className="text-sm text-muted-foreground">尚無可選計畫</span>
+                )}
+              </div>
+              {orgForm.planIds.length > 0 && (
+                <p className="text-xs text-muted-foreground">
+                  已選擇 {orgForm.planIds.length} 個計畫
+                </p>
+              )}
             </div>
 
             <div className="space-y-2">
@@ -1310,21 +1356,51 @@ export function OrganizationsPage() {
           </DialogHeader>
 
           <div className="space-y-4 py-4">
-            {/* Organization Selection */}
+            {/* Organization Selection Mode */}
             <div className="space-y-2">
-              <Label>選擇機構 *</Label>
-              <Select value={quickUpcomingOrgId} onValueChange={setQuickUpcomingOrgId}>
-                <SelectTrigger>
-                  <SelectValue placeholder="請選擇要訪視的機構" />
-                </SelectTrigger>
-                <SelectContent>
-                  {organizations.map(org => (
-                    <SelectItem key={org.id} value={org.id}>
-                      {org.name} ({OrganizationCategoryLabels[org.category]})
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <Label>機構 *</Label>
+              <div className="flex gap-2 mb-2">
+                <Badge
+                  variant={quickUpcomingOrgMode === "select" ? "default" : "outline"}
+                  className="cursor-pointer"
+                  onClick={() => setQuickUpcomingOrgMode("select")}
+                >
+                  選擇現有機構
+                </Badge>
+                <Badge
+                  variant={quickUpcomingOrgMode === "new" ? "default" : "outline"}
+                  className="cursor-pointer"
+                  onClick={() => setQuickUpcomingOrgMode("new")}
+                >
+                  新增機構
+                </Badge>
+              </div>
+
+              {quickUpcomingOrgMode === "select" ? (
+                <Select value={quickUpcomingOrgId} onValueChange={setQuickUpcomingOrgId}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="請選擇要訪視的機構" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {organizations.map(org => (
+                      <SelectItem key={org.id} value={org.id}>
+                        {org.name} ({OrganizationCategoryLabels[org.category]})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              ) : (
+                <Input
+                  value={quickUpcomingNewOrgName}
+                  onChange={(e) => setQuickUpcomingNewOrgName(e.target.value)}
+                  placeholder="輸入新機構名稱"
+                />
+              )}
+              {quickUpcomingOrgMode === "new" && (
+                <p className="text-xs text-muted-foreground">
+                  將自動建立新機構，其他資料可稍後編輯
+                </p>
+              )}
             </div>
 
             <div className="grid gap-4 sm:grid-cols-2">
@@ -1390,7 +1466,7 @@ export function OrganizationsPage() {
             <Button variant="outline" onClick={() => setIsQuickUpcomingDialogOpen(false)}>
               取消
             </Button>
-            <Button onClick={handleSubmitQuickUpcomingVisit} disabled={isSubmitting || !quickUpcomingOrgId}>
+            <Button onClick={handleSubmitQuickUpcomingVisit} disabled={isSubmitting || (quickUpcomingOrgMode === "select" && !quickUpcomingOrgId) || (quickUpcomingOrgMode === "new" && !quickUpcomingNewOrgName.trim())}>
               {isSubmitting ? "儲存中..." : "儲存"}
             </Button>
           </DialogFooter>

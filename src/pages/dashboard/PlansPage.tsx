@@ -50,6 +50,7 @@ import {
   ListChecks,
   Paperclip,
   Eye,
+  Edit as EditIcon,
   FolderKanban,
   FileText,
   Building2,
@@ -91,6 +92,13 @@ export function PlansPage() {
   const [editingProject, setEditingProject] = useState<Project | null>(null)
   const [isTemplateModalOpen, setIsTemplateModalOpen] = useState(false)
   const [viewingTemplateWorkflow, _setViewingTemplateWorkflow] = useState<WorkflowStep[] | null>(null)
+
+  // Plan view dialog state
+  const [isPlanViewOpen, setIsPlanViewOpen] = useState(false)
+  const [viewingPlan, setViewingPlan] = useState<Plan | null>(null)
+  const [viewingPlanOrgCount, setViewingPlanOrgCount] = useState(0)
+  const [viewingPlanOrgs, setViewingPlanOrgs] = useState<OrganizationWithDetails[]>([])
+  const [isLoadingPlanView, setIsLoadingPlanView] = useState(false)
 
   // Plan form state
   const [planFormData, setPlanFormData] = useState({
@@ -169,6 +177,28 @@ export function PlansPage() {
       console.error("Failed to load executions:", error)
     } finally {
       setIsLoadingExecutions(false)
+    }
+  }
+
+  // Plan view operations
+  const openPlanView = async (plan: Plan) => {
+    setViewingPlan(plan)
+    setIsPlanViewOpen(true)
+    setIsLoadingPlanView(true)
+
+    try {
+      const [count, orgs] = await Promise.all([
+        organizationService.getOrganizationCountByPlan(plan.id),
+        organizationService.getOrganizationsByPlan(plan.id),
+      ])
+      setViewingPlanOrgCount(count)
+      setViewingPlanOrgs(orgs)
+    } catch (error) {
+      console.error("Failed to load plan organizations:", error)
+      setViewingPlanOrgCount(0)
+      setViewingPlanOrgs([])
+    } finally {
+      setIsLoadingPlanView(false)
     }
   }
 
@@ -616,17 +646,32 @@ export function PlansPage() {
                         </span>
                       </div>
                     </div>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-8 w-8 p-0 shrink-0"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        openPlanForm(plan)
-                      }}
-                    >
-                      <Eye className="h-4 w-4" />
-                    </Button>
+                    <div className="flex gap-0.5 shrink-0">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-8 w-8 p-0"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          openPlanView(plan)
+                        }}
+                        title="檢視計畫"
+                      >
+                        <Eye className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-8 w-8 p-0"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          openPlanForm(plan)
+                        }}
+                        title="編輯流程"
+                      >
+                        <EditIcon className="h-4 w-4" />
+                      </Button>
+                    </div>
                   </div>
                 </div>
               )
@@ -1840,6 +1885,108 @@ export function PlansPage() {
               </div>
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Plan View Dialog */}
+      <Dialog open={isPlanViewOpen} onOpenChange={setIsPlanViewOpen}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <FolderKanban className="h-5 w-5" />
+              {viewingPlan?.name}
+            </DialogTitle>
+            <DialogDescription>計畫詳情與對接機構</DialogDescription>
+          </DialogHeader>
+
+          {viewingPlan && (
+            <div className="space-y-6">
+              {/* Plan Info */}
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <Badge variant="secondary">{viewingPlan.type}</Badge>
+                  <Badge variant="outline">
+                    {projects.filter(p => p.planId === viewingPlan.id).length} 專案
+                  </Badge>
+                </div>
+                {viewingPlan.description && (
+                  <p className="text-sm text-muted-foreground">{viewingPlan.description}</p>
+                )}
+              </div>
+
+              <Separator />
+
+              {/* Workflow Preview */}
+              <div className="space-y-3">
+                <h3 className="font-medium flex items-center gap-2">
+                  <Play className="h-4 w-4" />
+                  流程步驟
+                </h3>
+                <div className="flex items-center justify-center gap-2 flex-wrap py-4 bg-muted/30 rounded-lg">
+                  {viewingPlan.workflow.map((step, index) => (
+                    <div key={step.id} className="flex items-center gap-2">
+                      <div className="flex flex-col items-center">
+                        <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center text-sm font-medium">
+                          {index + 1}
+                        </div>
+                        <span className="text-xs mt-1 text-center max-w-[50px] leading-tight">
+                          {step.name}
+                        </span>
+                      </div>
+                      {index < viewingPlan.workflow.length - 1 && (
+                        <Play className="h-3 w-3 text-muted-foreground/40" />
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <Separator />
+
+              {/* Organizations */}
+              <div className="space-y-3">
+                <h3 className="font-medium flex items-center gap-2">
+                  <Building2 className="h-4 w-4" />
+                  對接機構
+                  <Badge variant="secondary">{viewingPlanOrgCount}</Badge>
+                </h3>
+                {isLoadingPlanView ? (
+                  <div className="text-center text-muted-foreground py-4">載入中...</div>
+                ) : viewingPlanOrgs.length === 0 ? (
+                  <div className="text-center text-muted-foreground py-4 bg-muted/30 rounded-lg">
+                    尚無機構對接此計畫
+                  </div>
+                ) : (
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    {viewingPlanOrgs.map(org => (
+                      <div
+                        key={org.id}
+                        className="flex items-center gap-2 p-3 bg-muted/50 rounded-lg"
+                      >
+                        <Building2 className="h-4 w-4 text-muted-foreground shrink-0" />
+                        <span className="text-sm truncate">{org.name}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsPlanViewOpen(false)}>
+              關閉
+            </Button>
+            <Button
+              onClick={() => {
+                setIsPlanViewOpen(false)
+                if (viewingPlan) openPlanForm(viewingPlan)
+              }}
+            >
+              <EditIcon className="h-4 w-4 mr-2" />
+              編輯流程
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

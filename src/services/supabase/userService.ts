@@ -43,7 +43,7 @@ function transformApplication(row: Record<string, unknown>): VolunteerApplicatio
 }
 
 export const supabaseUserService = {
-  // Users
+  // Users - get only volunteers
   async getUsers(): Promise<User[]> {
     const { data, error } = await supabase
       .from('profiles')
@@ -53,6 +53,22 @@ export const supabaseUserService = {
 
     if (error) {
       console.error('Error fetching users:', error)
+      return []
+    }
+    return (data || []).map(row => transformUser(row as Record<string, unknown>))
+  },
+
+  // Get admin staff (admins, super_admins) for assignment
+  async getAllStaff(): Promise<User[]> {
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('status', 'active')
+      .in('role', ['admin', 'super_admin'])
+      .order('name', { ascending: true })
+
+    if (error) {
+      console.error('Error fetching staff:', error)
       return []
     }
     return (data || []).map(row => transformUser(row as Record<string, unknown>))

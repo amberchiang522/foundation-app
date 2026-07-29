@@ -23,7 +23,7 @@ function mapOrganization(row: Record<string, unknown>): Organization {
     website: row.website as string | undefined,
     lineId: row.line_id as string | undefined,
     notes: row.notes as string | undefined,
-    projectId: row.project_id as string | undefined,
+    planIds: (row.plan_ids as string[]) || [],
     createdBy: row.created_by as string,
     createdAt: row.created_at as string,
     updatedAt: row.updated_at as string,
@@ -75,19 +75,29 @@ export const supabaseOrganizationService = {
   async getOrganizations(): Promise<OrganizationWithDetails[]> {
     const { data, error } = await supabase
       .from('organizations')
-      .select(`
-        *,
-        projects:project_id (id, name)
-      `)
+      .select('*')
       .order('created_at', { ascending: false })
 
     if (error) throw error
 
+    // Fetch all plans to map names
+    const { data: allPlans } = await supabase
+      .from('plans')
+      .select('id, name')
+
+    const plansMap = new Map((allPlans || []).map(p => [p.id, p.name]))
+
     // Get visit stats for each organization
-    const orgs = (data || []).map(row => ({
-      ...mapOrganization(row),
-      project: row.projects ? { id: row.projects.id, name: row.projects.name } : undefined,
-    }))
+    const orgs = (data || []).map(row => {
+      const org = mapOrganization(row)
+      const plans = (org.planIds || [])
+        .filter(id => plansMap.has(id))
+        .map(id => ({ id, name: plansMap.get(id)! }))
+      return {
+        ...org,
+        plans,
+      }
+    })
 
     // Fetch visit counts
     for (const org of orgs) {
@@ -121,10 +131,7 @@ export const supabaseOrganizationService = {
   async getOrganizationById(id: string): Promise<OrganizationWithDetails | null> {
     const { data, error } = await supabase
       .from('organizations')
-      .select(`
-        *,
-        projects:project_id (id, name)
-      `)
+      .select('*')
       .eq('id', id)
       .single()
 
@@ -133,9 +140,20 @@ export const supabaseOrganizationService = {
       throw error
     }
 
+    // Fetch plan names
+    const orgData = mapOrganization(data)
+    let plans: { id: string; name: string }[] = []
+    if (orgData.planIds && orgData.planIds.length > 0) {
+      const { data: planData } = await supabase
+        .from('plans')
+        .select('id, name')
+        .in('id', orgData.planIds)
+      plans = (planData || []).map(p => ({ id: p.id, name: p.name }))
+    }
+
     const org: OrganizationWithDetails = {
-      ...mapOrganization(data),
-      project: data.projects ? { id: data.projects.id, name: data.projects.name } : undefined,
+      ...orgData,
+      plans,
     }
 
     // Fetch visit stats
@@ -177,7 +195,7 @@ export const supabaseOrganizationService = {
         website: data.website,
         line_id: data.lineId,
         notes: data.notes,
-        project_id: data.projectId,
+        plan_ids: data.planIds || [],
         created_by: data.createdBy,
       })
       .select()
@@ -198,7 +216,7 @@ export const supabaseOrganizationService = {
     if (data.website !== undefined) updateData.website = data.website
     if (data.lineId !== undefined) updateData.line_id = data.lineId
     if (data.notes !== undefined) updateData.notes = data.notes
-    if (data.projectId !== undefined) updateData.project_id = data.projectId
+    if (data.planIds !== undefined) updateData.plan_ids = data.planIds
 
     const { data: result, error } = await supabase
       .from('organizations')
@@ -482,5 +500,37 @@ export const supabaseOrganizationService = {
 
   async cancelUpcomingVisit(id: string): Promise<UpcomingVisit | null> {
     return this.updateUpcomingVisit(id, { status: 'cancelled' })
+  },
+
+  // Get organization count by plan ID
+  async getOrganizationCountByPlan(planId: string): Promise<number> {
+    const { data, error } = await supabase
+      .from('organizations')
+      .select('plan_ids')
+
+    if (error) return 0
+
+    // Count organizations that have this planId in their plan_ids array
+    const count = (data || []).filter(org => {
+      const planIds = org.plan_ids as string[] | null
+      return planIds && planIds.includes(planId)
+    }).length
+
+    return count
+  },
+
+  // Get organizations by plan ID
+  async getOrganizationsByPlan(planId: string): Promise<OrganizationWithDetails[]> {
+    const { data, error } = await supabase
+      .from('organizations')
+      .select('*')
+      .contains('plan_ids', [planId])
+
+    if (error) return []
+
+    return (data || []).map(row => ({
+      ...mapOrganization(row),
+      plans: [],
+    }))
   },
 }

@@ -33,6 +33,12 @@ const mockUserService = {
     return users.filter(u => u.role === 'volunteer')
   },
 
+  // Get admin staff (admins, super_admins) for assignment
+  async getAllStaff(): Promise<User[]> {
+    await new Promise(resolve => setTimeout(resolve, 300))
+    return users.filter(u => u.status === 'active' && (u.role === 'admin' || u.role === 'super_admin'))
+  },
+
   async getUserById(id: string): Promise<User | null> {
     await new Promise(resolve => setTimeout(resolve, 200))
     return users.find(u => u.id === id) || null

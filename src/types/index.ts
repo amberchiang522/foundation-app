@@ -186,6 +186,9 @@ export interface Plan {
   createdBy: string
   createdAt: string
   updatedAt: string
+
+  // Computed fields
+  organizationCount?: number
 }
 
 // Project types
@@ -344,7 +347,7 @@ export interface Organization {
   website?: string
   lineId?: string
   notes?: string
-  projectId?: string
+  planIds?: string[]  // Multiple plans (many-to-many)
   createdBy: string
   createdAt: string
   updatedAt: string
@@ -352,10 +355,10 @@ export interface Organization {
 
 // 機構（含關聯資料）
 export interface OrganizationWithDetails extends Organization {
-  project?: {
+  plans?: {
     id: string
     name: string
-  }
+  }[]
   visitCount?: number
   lastVisitDate?: string
   upcomingVisitCount?: number

@@ -156,6 +156,16 @@ const mockOrganizationService = {
   async cancelUpcomingVisit(id: string): Promise<UpcomingVisit | null> {
     return this.updateUpcomingVisit(id, { status: 'cancelled' })
   },
+
+  async getOrganizationCountByPlan(planId: string): Promise<number> {
+    await new Promise(resolve => setTimeout(resolve, 100))
+    return mockOrganizations.filter(o => o.planIds?.includes(planId)).length
+  },
+
+  async getOrganizationsByPlan(planId: string): Promise<OrganizationWithDetails[]> {
+    await new Promise(resolve => setTimeout(resolve, 200))
+    return mockOrganizations.filter(o => o.planIds?.includes(planId))
+  },
 }
 
 // Export the appropriate service based on feature flag
