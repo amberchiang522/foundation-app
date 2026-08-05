@@ -141,8 +141,12 @@ export function AccountManagePage() {
 
   const volunteerUsers = users.filter((u) => u.role === "volunteer")
 
+  // State for editing user name
+  const [editingUserName, setEditingUserName] = useState("")
+
   const handleEditUser = (user: User) => {
     setEditingUser(user)
+    setEditingUserName(user.name)
     setSelectedRole(user.role)
     setSelectedTags(user.adminTags || [])
   }
@@ -150,17 +154,22 @@ export function AccountManagePage() {
   const handleSaveUser = async () => {
     if (!editingUser) return
 
+    if (!editingUserName.trim()) {
+      alert("請填寫名稱")
+      return
+    }
+
     setIsSaving(true)
     try {
-      // Update role
-      const { error: roleError } = await supabase
+      // Update name and role
+      const { error: updateError } = await supabase
         .from("profiles")
-        .update({ role: selectedRole })
+        .update({ name: editingUserName.trim(), role: selectedRole })
         .eq("id", editingUser.id)
 
-      if (roleError) {
-        console.error("Error updating role:", roleError)
-        alert("更新角色失敗")
+      if (updateError) {
+        console.error("Error updating user:", updateError)
+        alert("更新失敗")
         return
       }
 
@@ -540,13 +549,22 @@ export function AccountManagePage() {
       <Dialog open={!!editingUser} onOpenChange={() => setEditingUser(null)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>編輯帳號權限</DialogTitle>
+            <DialogTitle>編輯帳號</DialogTitle>
             <DialogDescription>
-              修改 {editingUser?.name} 的角色與管理員標籤
+              修改帳號名稱、角色與管理員標籤
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label>名稱</Label>
+              <Input
+                value={editingUserName}
+                onChange={(e) => setEditingUserName(e.target.value)}
+                placeholder="輸入名稱"
+              />
+            </div>
+
             <div className="space-y-2">
               <Label>角色</Label>
               <Select

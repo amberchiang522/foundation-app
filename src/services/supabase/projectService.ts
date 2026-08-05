@@ -32,6 +32,11 @@ function transformProject(row: Record<string, unknown>): Project {
     createdBy: row.created_by as string,
     createdAt: row.created_at as string,
     updatedAt: row.updated_at as string,
+    // Tracking fields
+    trackingEnabled: row.tracking_enabled as boolean | undefined,
+    trackingIntervalDays: row.tracking_interval_days as number | undefined,
+    nextTrackingDate: row.next_tracking_date as string | undefined,
+    trackingNotificationDismissed: row.tracking_notification_dismissed as boolean | undefined,
   }
 }
 
@@ -218,6 +223,11 @@ export const supabaseProjectService = {
     if (projectData.workflow !== undefined) updateData.workflow = projectData.workflow
     if (projectData.currentStep !== undefined) updateData.current_step = projectData.currentStep
     if (projectData.status !== undefined) updateData.status = projectData.status
+    // Tracking fields
+    if (projectData.trackingEnabled !== undefined) updateData.tracking_enabled = projectData.trackingEnabled
+    if (projectData.trackingIntervalDays !== undefined) updateData.tracking_interval_days = projectData.trackingIntervalDays
+    if (projectData.nextTrackingDate !== undefined) updateData.next_tracking_date = projectData.nextTrackingDate
+    if (projectData.trackingNotificationDismissed !== undefined) updateData.tracking_notification_dismissed = projectData.trackingNotificationDismissed
 
     const { data: updated, error } = await supabase
       .from('projects')

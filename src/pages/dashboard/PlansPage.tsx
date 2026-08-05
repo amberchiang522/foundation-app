@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { useNavigate } from "react-router-dom"
 import { format } from "date-fns"
 import { Card, CardContent } from "@/components/ui/card"
@@ -153,9 +153,13 @@ export function PlansPage() {
   const [verifyForm, setVerifyForm] = useState({ approved: true, rejectReason: "" })
   const [isProcessing, setIsProcessing] = useState(false)
 
-  // Inline execution form content (separate to avoid re-render issues)
-  const [inlineExecContent, setInlineExecContent] = useState("")
+  // Inline execution form content (using ref to avoid re-render/focus issues)
+  const inlineExecContentRef = useRef<HTMLTextAreaElement>(null)
   const [inlineExecAttachments, setInlineExecAttachments] = useState<ImageUploadResult[]>([])
+
+  // Ref for workflow progress scroll container
+  const workflowScrollRef = useRef<HTMLDivElement>(null)
+  const currentStepRef = useRef<HTMLDivElement>(null)
 
   // Edit mode for pending executions
   const [editingExecutionId, setEditingExecutionId] = useState<string | null>(null)
@@ -201,6 +205,20 @@ export function PlansPage() {
       loadProjectExecutions(selectedProject.id)
     }
   }, [selectedProject])
+
+  // Scroll workflow progress to center current step on mobile
+  useEffect(() => {
+    if (selectedProject && currentStepRef.current && workflowScrollRef.current) {
+      // Small delay to ensure DOM is ready
+      setTimeout(() => {
+        currentStepRef.current?.scrollIntoView({
+          behavior: "smooth",
+          block: "nearest",
+          inline: "center",
+        })
+      }, 100)
+    }
+  }, [selectedProject?.id, selectedProject?.currentStep])
 
   const loadProjectExecutions = async (projectId: string) => {
     setIsLoadingExecutions(true)
@@ -1414,7 +1432,7 @@ export function PlansPage() {
             {/* Workflow Progress */}
             <div>
               <h3 className="font-medium mb-3">流程進度</h3>
-              <div className="overflow-x-auto pb-2">
+              <div ref={workflowScrollRef} className="overflow-x-auto pb-2">
                 <div className="flex gap-4 py-4 px-3 bg-muted/30 rounded-lg min-w-max items-start justify-center">
                   {selectedProject.workflow.map((step, index) => {
                     const hasSubTasks = step.subTasks && step.subTasks.length > 0
@@ -1526,7 +1544,11 @@ export function PlansPage() {
                     const canReject = showApprovalButtons && hasRejectOption
 
                     return (
-                      <div key={step.id} className="flex items-start gap-3">
+                      <div
+                        key={step.id}
+                        ref={isCurrentStep ? currentStepRef : undefined}
+                        className="flex items-start gap-3"
+                      >
                         <div
                           className={cn(
                             "flex flex-col items-center transition-all",
@@ -2327,9 +2349,9 @@ export function PlansPage() {
                                     <div>
                                       <Label className="text-xs text-muted-foreground">說明（選填）</Label>
                                       <textarea
+                                        ref={inlineExecContentRef}
                                         className="mt-1 flex min-h-16 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                                        value={inlineExecContent}
-                                        onChange={(e) => setInlineExecContent(e.target.value)}
+                                        defaultValue=""
                                         placeholder="填寫執行說明..."
                                       />
                                     </div>
@@ -2357,12 +2379,12 @@ export function PlansPage() {
                                             currentStep.id,
                                             user.id,
                                             {
-                                              content: inlineExecContent,
+                                              content: inlineExecContentRef.current?.value || "",
                                               attachments: inlineExecAttachments as ImageData[],
                                             }
                                           )
                                           await loadProjectExecutions(selectedProject.id)
-                                          setInlineExecContent("")
+                                          if (inlineExecContentRef.current) inlineExecContentRef.current.value = ""
                                           setInlineExecAttachments([])
                                           // Refresh project data
                                           const updated = await projectService.getProjectById(selectedProject.id)

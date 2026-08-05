@@ -15,6 +15,7 @@ import type { ImageData } from "@/types"
 import { User as UserIcon, Mail, Phone, Calendar, Briefcase, MessageSquare, Camera } from "lucide-react"
 
 const profileSchema = z.object({
+  name: z.string().min(1, "請輸入姓名"),
   phone: z.string().regex(/^09\d{8}$/, "請輸入有效的手機號碼"),
   occupation: z.string().min(1, "請輸入職業"),
   lineId: z.string().min(1, "請輸入 LINE ID"),
@@ -40,6 +41,7 @@ export function ProfilePage() {
   } = useForm<ProfileFormData>({
     resolver: zodResolver(profileSchema),
     defaultValues: {
+      name: user?.name || "",
       phone: user?.phone || "",
       occupation: user?.occupation || "",
       lineId: user?.lineId || "",
@@ -54,6 +56,7 @@ export function ProfilePage() {
 
     try {
       await userService.updateUser(user.id, data)
+      refreshUser?.() // Refresh user data to sync name change
       setSaveSuccess(true)
       setIsEditing(false)
       setTimeout(() => setSaveSuccess(false), 3000)
@@ -67,6 +70,7 @@ export function ProfilePage() {
 
   const handleCancel = () => {
     reset({
+      name: user?.name || "",
       phone: user?.phone || "",
       occupation: user?.occupation || "",
       lineId: user?.lineId || "",
@@ -187,6 +191,14 @@ export function ProfilePage() {
               <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div className="space-y-2">
+                    <Label htmlFor="name">姓名</Label>
+                    <Input id="name" {...register("name")} />
+                    {errors.name && (
+                      <p className="text-sm text-destructive">{errors.name.message}</p>
+                    )}
+                  </div>
+
+                  <div className="space-y-2">
                     <Label htmlFor="phone">手機號碼</Label>
                     <Input id="phone" {...register("phone")} />
                     {errors.phone && (
@@ -202,7 +214,7 @@ export function ProfilePage() {
                     )}
                   </div>
 
-                  <div className="space-y-2 sm:col-span-2">
+                  <div className="space-y-2">
                     <Label htmlFor="lineId">LINE ID</Label>
                     <Input id="lineId" {...register("lineId")} />
                     {errors.lineId && (
