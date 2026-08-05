@@ -1,8 +1,10 @@
 import { useState, useEffect } from "react"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Checkbox } from "@/components/ui/checkbox"
+import { Input } from "@/components/ui/input"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
   Table,
   TableBody,
@@ -29,13 +31,23 @@ import {
 import { Label } from "@/components/ui/label"
 import { useAuth } from "@/contexts/AuthContext"
 import { supabase } from "@/lib/supabase"
+import { settingsService } from "@/services"
 import type { User, UserRole, AdminTag } from "@/types"
-import { Shield, Edit, Users } from "lucide-react"
+import { Shield, Edit, Users, UserCheck, Tags, Plus, Pencil, Trash2 } from "lucide-react"
 
 const roleLabels: Record<UserRole, { label: string; variant: "default" | "secondary" | "destructive" }> = {
   volunteer: { label: "志工", variant: "secondary" },
+  staff: { label: "內部人員", variant: "secondary" },
   admin: { label: "管理員", variant: "default" },
   super_admin: { label: "超級管理員", variant: "destructive" },
+}
+
+// Role priority for sorting (higher = more priority)
+const rolePriority: Record<UserRole, number> = {
+  super_admin: 4,
+  admin: 3,
+  staff: 2,
+  volunteer: 1,
 }
 
 export function AccountManagePage() {
@@ -47,6 +59,12 @@ export function AccountManagePage() {
   const [selectedRole, setSelectedRole] = useState<UserRole>("volunteer")
   const [selectedTags, setSelectedTags] = useState<string[]>([])
   const [isSaving, setIsSaving] = useState(false)
+
+  // Admin Tag Dialog
+  const [isTagDialogOpen, setIsTagDialogOpen] = useState(false)
+  const [editingTag, setEditingTag] = useState<AdminTag | null>(null)
+  const [tagForm, setTagForm] = useState({ name: "", description: "" })
+  const [isSavingTag, setIsSavingTag] = useState(false)
 
   // Redirect if not super admin
   if (!isSuperAdmin) {
@@ -109,27 +127,19 @@ export function AccountManagePage() {
       }
 
       // Load admin tags
-      const { data: tagsData, error: tagsError } = await supabase
-        .from("admin_tags")
-        .select("*")
-        .order("name")
-
-      if (tagsError) {
-        console.error("Error loading admin tags:", tagsError)
-      } else {
-        setAdminTags(
-          (tagsData || []).map((t) => ({
-            id: t.id,
-            name: t.name,
-            description: t.description,
-            createdAt: t.created_at,
-          }))
-        )
-      }
+      const tagsData = await settingsService.getAdminTags()
+      setAdminTags(tagsData)
     } finally {
       setIsLoading(false)
     }
   }
+
+  // Filter users by type
+  const staffUsers = users
+    .filter((u) => u.role === "super_admin" || u.role === "admin" || u.role === "staff")
+    .sort((a, b) => rolePriority[b.role] - rolePriority[a.role])
+
+  const volunteerUsers = users.filter((u) => u.role === "volunteer")
 
   const handleEditUser = (user: User) => {
     setEditingUser(user)
@@ -202,6 +212,160 @@ export function AccountManagePage() {
       .join(", ")
   }
 
+  // === Admin Tags Management ===
+  const openTagDialog = (tag?: AdminTag) => {
+    setEditingTag(tag || null)
+    setTagForm({
+      name: tag?.name || "",
+      description: tag?.description || "",
+    })
+    setIsTagDialogOpen(true)
+  }
+
+  const handleSaveTag = async () => {
+    if (!tagForm.name.trim()) {
+      alert("請填寫標籤名稱")
+      return
+    }
+
+    setIsSavingTag(true)
+    try {
+      if (editingTag) {
+        await settingsService.updateAdminTag(editingTag.id, tagForm)
+      } else {
+        await settingsService.createAdminTag(tagForm)
+      }
+      await loadData()
+      setIsTagDialogOpen(false)
+    } catch (error) {
+      console.error("Failed to save tag:", error)
+      alert("儲存失敗")
+    } finally {
+      setIsSavingTag(false)
+    }
+  }
+
+  const handleDeleteTag = async (tag: AdminTag) => {
+    if (!confirm(`確定要刪除標籤「${tag.name}」嗎？`)) return
+
+    try {
+      await settingsService.deleteAdminTag(tag.id)
+      await loadData()
+    } catch (error) {
+      console.error("Failed to delete tag:", error)
+    }
+  }
+
+  // Render user table (desktop)
+  const renderUserTable = (userList: User[], showVolunteerNumber = false) => (
+    <Table>
+      <TableHeader>
+        <TableRow>
+          <TableHead>名稱</TableHead>
+          {showVolunteerNumber && <TableHead>志工編號</TableHead>}
+          <TableHead>Email</TableHead>
+          <TableHead>角色</TableHead>
+          {!showVolunteerNumber && <TableHead>管理員標籤</TableHead>}
+          <TableHead>狀態</TableHead>
+          <TableHead className="text-right">操作</TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {userList.map((user) => (
+          <TableRow key={user.id}>
+            <TableCell className="font-medium">{user.name}</TableCell>
+            {showVolunteerNumber && (
+              <TableCell>{user.volunteerNumber || "-"}</TableCell>
+            )}
+            <TableCell>{user.email}</TableCell>
+            <TableCell>
+              <Badge variant={roleLabels[user.role].variant}>
+                {roleLabels[user.role].label}
+              </Badge>
+            </TableCell>
+            {!showVolunteerNumber && (
+              <TableCell>
+                {user.adminTags && user.adminTags.length > 0 ? (
+                  <span className="text-sm text-muted-foreground">
+                    {getTagNames(user.adminTags)}
+                  </span>
+                ) : (
+                  <span className="text-sm text-muted-foreground">-</span>
+                )}
+              </TableCell>
+            )}
+            <TableCell>
+              <Badge
+                variant={user.status === "active" ? "default" : "destructive"}
+              >
+                {user.status === "active" ? "啟用" : "停權"}
+              </Badge>
+            </TableCell>
+            <TableCell className="text-right">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => handleEditUser(user)}
+                disabled={user.id === currentUser?.id}
+              >
+                <Edit className="h-4 w-4" />
+              </Button>
+            </TableCell>
+          </TableRow>
+        ))}
+      </TableBody>
+    </Table>
+  )
+
+  // Render user cards (mobile)
+  const renderUserCards = (userList: User[], showVolunteerNumber = false) => (
+    <div className="space-y-4">
+      {userList.map((user) => (
+        <Card key={user.id}>
+          <CardContent className="p-4">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex-1 min-w-0 space-y-2">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="font-medium">{user.name}</span>
+                  <Badge variant={roleLabels[user.role].variant} className="text-xs">
+                    {roleLabels[user.role].label}
+                  </Badge>
+                  <Badge
+                    variant={user.status === "active" ? "default" : "destructive"}
+                    className="text-xs"
+                  >
+                    {user.status === "active" ? "啟用" : "停權"}
+                  </Badge>
+                </div>
+                {showVolunteerNumber && user.volunteerNumber && (
+                  <p className="text-sm text-muted-foreground">
+                    編號: {user.volunteerNumber}
+                  </p>
+                )}
+                <p className="text-sm text-muted-foreground truncate">
+                  {user.email}
+                </p>
+                {!showVolunteerNumber && user.adminTags && user.adminTags.length > 0 && (
+                  <p className="text-xs text-muted-foreground">
+                    標籤: {getTagNames(user.adminTags)}
+                  </p>
+                )}
+              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => handleEditUser(user)}
+                disabled={user.id === currentUser?.id}
+              >
+                <Edit className="h-4 w-4" />
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      ))}
+    </div>
+  )
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-96">
@@ -222,110 +386,155 @@ export function AccountManagePage() {
         </div>
       </div>
 
-      {/* Desktop Table View */}
-      <Card className="hidden md:block">
-        <CardHeader>
-          <CardTitle>所有帳號 ({users.length})</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>名稱</TableHead>
-                <TableHead>Email</TableHead>
-                <TableHead>角色</TableHead>
-                <TableHead>管理員標籤</TableHead>
-                <TableHead>狀態</TableHead>
-                <TableHead className="text-right">操作</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {users.map((user) => (
-                <TableRow key={user.id}>
-                  <TableCell className="font-medium">{user.name}</TableCell>
-                  <TableCell>{user.email}</TableCell>
-                  <TableCell>
-                    <Badge variant={roleLabels[user.role].variant}>
-                      {roleLabels[user.role].label}
-                    </Badge>
-                  </TableCell>
-                  <TableCell>
-                    {user.adminTags && user.adminTags.length > 0 ? (
-                      <span className="text-sm text-muted-foreground">
-                        {getTagNames(user.adminTags)}
-                      </span>
-                    ) : (
-                      <span className="text-sm text-muted-foreground">-</span>
-                    )}
-                  </TableCell>
-                  <TableCell>
-                    <Badge
-                      variant={user.status === "active" ? "default" : "destructive"}
-                    >
-                      {user.status === "active" ? "啟用" : "停權"}
-                    </Badge>
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => handleEditUser(user)}
-                      disabled={user.id === currentUser?.id}
-                    >
-                      <Edit className="h-4 w-4" />
-                    </Button>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
+      <Tabs defaultValue="staff">
+        <TabsList className="grid w-full grid-cols-3">
+          <TabsTrigger value="staff" className="flex items-center gap-2">
+            <Shield className="h-4 w-4" />
+            <span>內部人員</span>
+            <Badge variant="secondary" className="ml-1">{staffUsers.length}</Badge>
+          </TabsTrigger>
+          <TabsTrigger value="volunteers" className="flex items-center gap-2">
+            <UserCheck className="h-4 w-4" />
+            <span>志工</span>
+            <Badge variant="secondary" className="ml-1">{volunteerUsers.length}</Badge>
+          </TabsTrigger>
+          <TabsTrigger value="tags" className="flex items-center gap-2">
+            <Tags className="h-4 w-4" />
+            <span>管理員標籤</span>
+          </TabsTrigger>
+        </TabsList>
 
-      {/* Mobile Card View */}
-      <div className="md:hidden space-y-4">
-        <div className="text-sm text-muted-foreground">
-          所有帳號 ({users.length})
-        </div>
-        {users.map((user) => (
-          <Card key={user.id}>
-            <CardContent className="p-4">
-              <div className="flex items-start justify-between gap-3">
-                <div className="flex-1 min-w-0 space-y-2">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="font-medium">{user.name}</span>
-                    <Badge variant={roleLabels[user.role].variant} className="text-xs">
-                      {roleLabels[user.role].label}
-                    </Badge>
-                    <Badge
-                      variant={user.status === "active" ? "default" : "destructive"}
-                      className="text-xs"
-                    >
-                      {user.status === "active" ? "啟用" : "停權"}
-                    </Badge>
-                  </div>
-                  <p className="text-sm text-muted-foreground truncate">
-                    {user.email}
-                  </p>
-                  {user.adminTags && user.adminTags.length > 0 && (
-                    <p className="text-xs text-muted-foreground">
-                      標籤: {getTagNames(user.adminTags)}
-                    </p>
-                  )}
+        {/* Staff Tab */}
+        <TabsContent value="staff" className="mt-6">
+          <Card className="hidden md:block">
+            <CardHeader>
+              <CardTitle>內部人員 ({staffUsers.length})</CardTitle>
+              <CardDescription>超級管理員、管理員、內部人員</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {staffUsers.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  尚無內部人員
                 </div>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => handleEditUser(user)}
-                  disabled={user.id === currentUser?.id}
-                >
-                  <Edit className="h-4 w-4" />
-                </Button>
-              </div>
+              ) : (
+                renderUserTable(staffUsers, false)
+              )}
             </CardContent>
           </Card>
-        ))}
-      </div>
+
+          <div className="md:hidden">
+            <div className="mb-4">
+              <h2 className="font-semibold">內部人員 ({staffUsers.length})</h2>
+              <p className="text-sm text-muted-foreground">超級管理員、管理員、內部人員</p>
+            </div>
+            {staffUsers.length === 0 ? (
+              <Card>
+                <CardContent className="py-8 text-center text-muted-foreground">
+                  尚無內部人員
+                </CardContent>
+              </Card>
+            ) : (
+              renderUserCards(staffUsers, false)
+            )}
+          </div>
+        </TabsContent>
+
+        {/* Volunteers Tab */}
+        <TabsContent value="volunteers" className="mt-6">
+          <Card className="hidden md:block">
+            <CardHeader>
+              <CardTitle>志工 ({volunteerUsers.length})</CardTitle>
+              <CardDescription>所有志工帳號</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {volunteerUsers.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  尚無志工
+                </div>
+              ) : (
+                renderUserTable(volunteerUsers, true)
+              )}
+            </CardContent>
+          </Card>
+
+          <div className="md:hidden">
+            <div className="mb-4">
+              <h2 className="font-semibold">志工 ({volunteerUsers.length})</h2>
+              <p className="text-sm text-muted-foreground">所有志工帳號</p>
+            </div>
+            {volunteerUsers.length === 0 ? (
+              <Card>
+                <CardContent className="py-8 text-center text-muted-foreground">
+                  尚無志工
+                </CardContent>
+              </Card>
+            ) : (
+              renderUserCards(volunteerUsers, true)
+            )}
+          </div>
+        </TabsContent>
+
+        {/* Admin Tags Tab */}
+        <TabsContent value="tags" className="mt-6">
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between">
+              <div>
+                <CardTitle>管理員標籤</CardTitle>
+                <CardDescription>
+                  用於指派審批權限的管理員標籤
+                </CardDescription>
+              </div>
+              <Button onClick={() => openTagDialog()}>
+                <Plus className="h-4 w-4 mr-1" />
+                新增標籤
+              </Button>
+            </CardHeader>
+            <CardContent>
+              {adminTags.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  尚無標籤，點擊上方按鈕新增
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {adminTags.map((tag) => (
+                    <div
+                      key={tag.id}
+                      className="flex items-center justify-between p-3 bg-muted/50 rounded-lg"
+                    >
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <Badge>{tag.name}</Badge>
+                        </div>
+                        {tag.description && (
+                          <p className="text-sm text-muted-foreground mt-1">
+                            {tag.description}
+                          </p>
+                        )}
+                      </div>
+                      <div className="flex gap-2">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => openTagDialog(tag)}
+                        >
+                          <Pencil className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleDeleteTag(tag)}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
 
       {/* Edit User Dialog */}
       <Dialog open={!!editingUser} onOpenChange={() => setEditingUser(null)}>
@@ -349,36 +558,41 @@ export function AccountManagePage() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="volunteer">志工</SelectItem>
+                  <SelectItem value="staff">內部人員</SelectItem>
                   <SelectItem value="admin">管理員</SelectItem>
                   <SelectItem value="super_admin">超級管理員</SelectItem>
                 </SelectContent>
               </Select>
             </div>
 
-            {(selectedRole === "admin" || selectedRole === "super_admin") && (
+            {(selectedRole === "staff" || selectedRole === "admin" || selectedRole === "super_admin") && (
               <div className="space-y-2">
                 <Label>管理員標籤</Label>
                 <div className="space-y-2 border rounded-md p-3">
-                  {adminTags.map((tag) => (
-                    <div key={tag.id} className="flex items-center space-x-2">
-                      <Checkbox
-                        id={tag.id}
-                        checked={selectedTags.includes(tag.id)}
-                        onCheckedChange={() => toggleTag(tag.id)}
-                      />
-                      <label
-                        htmlFor={tag.id}
-                        className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
-                      >
-                        {tag.name}
-                        {tag.description && (
-                          <span className="text-muted-foreground ml-2">
-                            ({tag.description})
-                          </span>
-                        )}
-                      </label>
-                    </div>
-                  ))}
+                  {adminTags.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">尚無標籤，請先在「管理員標籤」分頁新增</p>
+                  ) : (
+                    adminTags.map((tag) => (
+                      <div key={tag.id} className="flex items-center space-x-2">
+                        <Checkbox
+                          id={tag.id}
+                          checked={selectedTags.includes(tag.id)}
+                          onCheckedChange={() => toggleTag(tag.id)}
+                        />
+                        <label
+                          htmlFor={tag.id}
+                          className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+                        >
+                          {tag.name}
+                          {tag.description && (
+                            <span className="text-muted-foreground ml-2">
+                              ({tag.description})
+                            </span>
+                          )}
+                        </label>
+                      </div>
+                    ))
+                  )}
                 </div>
               </div>
             )}
@@ -390,6 +604,46 @@ export function AccountManagePage() {
             </Button>
             <Button onClick={handleSaveUser} disabled={isSaving}>
               {isSaving ? "儲存中..." : "儲存"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Admin Tag Dialog */}
+      <Dialog open={isTagDialogOpen} onOpenChange={setIsTagDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{editingTag ? "編輯標籤" : "新增標籤"}</DialogTitle>
+            <DialogDescription>設定管理員標籤資訊</DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>標籤名稱 *</Label>
+              <Input
+                value={tagForm.name}
+                onChange={(e) => setTagForm({ ...tagForm, name: e.target.value })}
+                placeholder="例如：財務組長"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>描述</Label>
+              <Input
+                value={tagForm.description}
+                onChange={(e) =>
+                  setTagForm({ ...tagForm, description: e.target.value })
+                }
+                placeholder="選填"
+              />
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsTagDialogOpen(false)}>
+              取消
+            </Button>
+            <Button onClick={handleSaveTag} disabled={isSavingTag}>
+              {isSavingTag ? "儲存中..." : "儲存"}
             </Button>
           </DialogFooter>
         </DialogContent>

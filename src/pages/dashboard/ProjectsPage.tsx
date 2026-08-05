@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react"
+import { useState, useEffect, useMemo } from "react"
 import { useSearchParams, Link } from "react-router-dom"
 import { format } from "date-fns"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -21,9 +21,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { MultiImageUploader } from "@/components/upload/MultiImageUploader"
 import { useAuth } from "@/contexts/AuthContext"
 import { projectService, settingsService } from "@/services"
-import type { Plan, Project, ProjectType, AdminTag, WorkflowStep } from "@/types"
+import type { Plan, Project, ProjectType, AdminTag, WorkflowStep, ImageData } from "@/types"
+import type { ImageUploadResult } from "@/services/imageService"
 import {
   Plus,
   Archive,
@@ -32,6 +34,8 @@ import {
   Clock,
   FileText,
   DollarSign,
+  Paperclip,
+  ExternalLink,
 } from "lucide-react"
 
 const statusConfig: Record<
@@ -82,7 +86,26 @@ export function ProjectsPage() {
     projectType: "",
     budgetAmount: 0,
   })
+  const [firstStepAttachments, setFirstStepAttachments] = useState<ImageUploadResult[]>([])
   const [isSaving, setIsSaving] = useState(false)
+
+  // Check if selected plan's first step requires attachment
+  const selectedPlan = useMemo(() => {
+    return plans.find((p) => p.id === formData.planId)
+  }, [plans, formData.planId])
+
+  const firstStep = useMemo(() => {
+    if (!selectedPlan || selectedPlan.workflow.length === 0) return null
+    return selectedPlan.workflow[0]
+  }, [selectedPlan])
+
+  // Show attachment upload if first step (establishment or approval) requires attachment
+  const firstStepRequiresAttachment = useMemo(() => {
+    if (!firstStep) return false
+    // Check if step type is establishment or approval AND requires attachment
+    const isApprovalType = firstStep.type === "establishment" || firstStep.type === "approval"
+    return isApprovalType && firstStep.requireAttachment === true
+  }, [firstStep])
 
   // Approval dialog
   const [isApprovalOpen, setIsApprovalOpen] = useState(false)
@@ -133,6 +156,7 @@ export function ProjectsPage() {
       projectType: "",
       budgetAmount: 0,
     })
+    setFirstStepAttachments([])
     setIsFormOpen(true)
   }
 
@@ -188,10 +212,23 @@ export function ProjectsPage() {
           budgetAmount: formData.budgetAmount,
         })
       } else {
+        // Convert ImageUploadResult to ImageData for storage
+        const attachmentsData: ImageData[] = firstStepAttachments.map((img) => ({
+          id: img.id,
+          originalUrl: img.originalUrl,
+          thumbnailUrl: img.thumbnailUrl,
+          fileName: img.fileName,
+          fileSize: img.fileSize,
+          mimeType: img.mimeType,
+          order: img.order,
+        }))
+
         // Initialize workflow from plan
         const workflow: WorkflowStep[] = plan.workflow.map((step, index) => ({
           ...step,
           status: index === 0 ? "in_progress" : "pending",
+          // Add attachments to first step if required
+          attachments: index === 0 && step.requireAttachment ? attachmentsData : step.attachments,
         }))
 
         await projectService.createProject({
@@ -546,6 +583,27 @@ export function ProjectsPage() {
                 />
               </div>
             </div>
+
+            {/* First step attachment upload (only show when creating and first step requires attachment) */}
+            {!editingProject && firstStepRequiresAttachment && firstStep && (
+              <div className="space-y-2 p-4 border rounded-lg bg-muted/30">
+                <Label className="flex items-center gap-2 text-base">
+                  <Paperclip className="h-4 w-4" />
+                  {firstStep.name} - 附件上傳
+                  <Badge variant="warning" className="text-xs">
+                    {firstStep.type === "establishment" ? "成立審核" : "審批"}
+                  </Badge>
+                </Label>
+                <p className="text-sm text-muted-foreground">
+                  此步驟需要上傳附件文件（支援圖片及 PDF）
+                </p>
+                <MultiImageUploader
+                  type="receipt"
+                  value={firstStepAttachments}
+                  onChange={setFirstStepAttachments}
+                />
+              </div>
+            )}
           </div>
 
           <DialogFooter>
@@ -669,6 +727,45 @@ export function ProjectsPage() {
                             {step.status === "approved" ? "通過" : "拒絕"}於{" "}
                             {format(new Date(step.approvedAt), "yyyy/MM/dd HH:mm")}
                             {step.note && <span> - {step.note}</span>}
+                          </div>
+                        )}
+
+                        {/* Step Attachments */}
+                        {step.attachments && step.attachments.length > 0 && (
+                          <div className="mt-3 pt-3 border-t">
+                            <p className="text-sm font-medium mb-2 flex items-center gap-1">
+                              <Paperclip className="h-3 w-3" />
+                              附件 ({step.attachments.length})
+                            </p>
+                            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                              {step.attachments.map((attachment) => (
+                                <a
+                                  key={attachment.id}
+                                  href={attachment.originalUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="group relative block aspect-video rounded-md overflow-hidden border bg-muted hover:border-primary transition-colors"
+                                >
+                                  {attachment.mimeType === "application/pdf" ? (
+                                    <div className="absolute inset-0 flex flex-col items-center justify-center text-muted-foreground">
+                                      <FileText className="h-8 w-8 mb-1" />
+                                      <span className="text-xs truncate max-w-full px-2">
+                                        {attachment.fileName}
+                                      </span>
+                                    </div>
+                                  ) : (
+                                    <img
+                                      src={attachment.thumbnailUrl || attachment.originalUrl}
+                                      alt={attachment.fileName}
+                                      className="absolute inset-0 w-full h-full object-cover"
+                                    />
+                                  )}
+                                  <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center">
+                                    <ExternalLink className="h-5 w-5 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
+                                  </div>
+                                </a>
+                              ))}
+                            </div>
                           </div>
                         )}
                       </div>

@@ -263,6 +263,19 @@ export const supabaseProjectService = {
     })
   },
 
+  async deleteProject(id: string): Promise<boolean> {
+    const { error } = await supabase
+      .from('projects')
+      .delete()
+      .eq('id', id)
+
+    if (error) {
+      console.error('Error deleting project:', error)
+      return false
+    }
+    return true
+  },
+
   // Project Types
   async getProjectTypes(): Promise<ProjectType[]> {
     const { data, error } = await supabase

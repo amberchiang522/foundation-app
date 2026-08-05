@@ -158,6 +158,34 @@ const mockWorkflowService = {
     return updatedExecution
   },
 
+  // Update an execution (executor can edit before verification)
+  async updateExecution(
+    executionId: string,
+    content: string,
+    attachments: ImageData[]
+  ): Promise<WorkflowStepExecution | null> {
+    await new Promise(resolve => setTimeout(resolve, 300))
+
+    const index = executions.findIndex(e => e.id === executionId)
+    if (index === -1) return null
+
+    const execution = executions[index]
+    if (execution.verificationStatus !== 'pending') {
+      throw new Error('Can only update pending executions')
+    }
+
+    const updatedExecution: WorkflowStepExecution = {
+      ...execution,
+      content,
+      attachments,
+      executedAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    }
+
+    executions[index] = updatedExecution
+    return updatedExecution
+  },
+
   // Start a new round (after rejection)
   async startNewRound(
     projectId: string,

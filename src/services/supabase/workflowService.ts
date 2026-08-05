@@ -159,6 +159,37 @@ export const supabaseWorkflowService = {
     return mapExecutionFromDb(execution)
   },
 
+  // Update an execution (executor can edit before verification)
+  async updateExecution(
+    executionId: string,
+    content: string,
+    attachments: ImageData[]
+  ): Promise<WorkflowStepExecution | null> {
+    console.log("updateExecution called:", { executionId, content, attachments })
+
+    const { data: execution, error } = await supabase
+      .from('workflow_step_executions')
+      .update({
+        content,
+        attachments,
+        executed_at: new Date().toISOString(),
+      })
+      .eq('id', executionId)
+      .eq('verification_status', 'pending') // Can only update pending executions
+      .select()
+      .single()
+
+    console.log("updateExecution result:", { execution, error })
+
+    if (error) {
+      console.error("updateExecution error:", error)
+      throw error
+    }
+    if (!execution) return null
+
+    return mapExecutionFromDb(execution)
+  },
+
   // Start a new round (after rejection)
   async startNewRound(
     projectId: string,

@@ -7,8 +7,10 @@ interface AuthContextType {
   user: User | null
   isLoading: boolean
   isAuthenticated: boolean
-  isAdmin: boolean
-  isSuperAdmin: boolean
+  isVolunteer: boolean      // 志工
+  isStaff: boolean          // 內部人員（staff, admin, super_admin）
+  isAdmin: boolean          // 管理員（admin, super_admin）
+  isSuperAdmin: boolean     // 超級管理員
   login: (email: string, password: string) => Promise<{ success: boolean; error?: string }>
   logout: () => Promise<void>
   refreshUser: () => Promise<void>
@@ -87,6 +89,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     user,
     isLoading,
     isAuthenticated: user !== null,
+    isVolunteer: user?.role === 'volunteer',
+    isStaff: user?.role === 'staff' || user?.role === 'admin' || user?.role === 'super_admin',
     isAdmin: user?.role === 'admin' || user?.role === 'super_admin',
     isSuperAdmin: user?.role === 'super_admin',
     login,

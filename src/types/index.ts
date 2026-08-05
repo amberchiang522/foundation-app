@@ -11,7 +11,7 @@ export interface ImageData {
 
 // User / Volunteer types
 export type VolunteerType = 'youth' | 'social'
-export type UserRole = 'volunteer' | 'admin' | 'super_admin'
+export type UserRole = 'volunteer' | 'staff' | 'admin' | 'super_admin'
 export type UserStatus = 'active' | 'suspended'
 
 export interface User {
@@ -66,7 +66,7 @@ export interface VolunteerApplication {
 }
 
 // Workflow types
-export type WorkflowStepType = 'status' | 'approval' | 'establishment'
+export type WorkflowStepType = 'status' | 'approval' | 'establishment' | 'tracking'
 export type WorkflowStepStatus = 'pending' | 'in_progress' | 'approved' | 'rejected' | 'not_established' | 'completed' | 'archived'
 export type AssigneeType = 'tag' | 'person'
 export type ApproverType = 'tag' | 'person'  // Keep for backwards compatibility
@@ -79,6 +79,7 @@ export interface SubTask {
   completed: boolean
   requireAttachment?: boolean
   attachments?: ImageData[]
+  note?: string  // Description/note for the sub-task
   completedBy?: string
   completedAt?: string
 }
@@ -91,17 +92,17 @@ export interface WorkflowStep {
   // Assignee settings (who executes/fills the step)
   assigneeType?: AssigneeType
   assigneeTagId?: string
-  assigneeUserId?: string
+  assigneeUserIds?: string[]  // Multiple assignees allowed
 
   // Verifier settings (who approves the execution)
   verifierType?: AssigneeType
   verifierTagId?: string
-  verifierUserId?: string
+  verifierUserIds?: string[]  // Multiple verifiers allowed
 
   // Legacy approval settings (for backwards compatibility)
   approverType?: ApproverType
   approverTagId?: string
-  approverUserId?: string
+  approverUserIds?: string[]  // Multiple approvers allowed
 
   // Sub-tasks (must all be completed before step can advance)
   subTasks?: SubTask[]
@@ -215,6 +216,12 @@ export interface Project {
   createdBy: string
   createdAt: string
   updatedAt: string
+
+  // Tracking settings (for completed projects)
+  trackingEnabled?: boolean
+  trackingIntervalDays?: number  // e.g., 30, 60, 90
+  nextTrackingDate?: string      // ISO date string
+  trackingNotificationDismissed?: boolean
 }
 
 // Project with related data

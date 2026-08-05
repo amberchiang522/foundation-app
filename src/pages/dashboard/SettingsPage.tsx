@@ -21,12 +21,11 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { settingsService, projectService } from "@/services"
-import type { SystemSettings, AdminTag, ProjectType, WorkflowTemplate, WorkflowStep } from "@/types"
-import { Plus, Pencil, Trash2, Settings, Users, FileText, GitBranch } from "lucide-react"
+import type { SystemSettings, ProjectType, WorkflowTemplate, WorkflowStep } from "@/types"
+import { Plus, Pencil, Trash2, Settings, FileText, GitBranch } from "lucide-react"
 
 export function SettingsPage() {
   const [, setSettings] = useState<SystemSettings | null>(null)
-  const [adminTags, setAdminTags] = useState<AdminTag[]>([])
   const [projectTypes, setProjectTypes] = useState<ProjectType[]>([])
   const [workflowTemplates, setWorkflowTemplates] = useState<WorkflowTemplate[]>([])
   const [isLoading, setIsLoading] = useState(true)
@@ -34,12 +33,6 @@ export function SettingsPage() {
   // General settings
   const [ageThreshold, setAgeThreshold] = useState(30)
   const [isSavingSettings, setIsSavingSettings] = useState(false)
-
-  // Admin Tag Dialog
-  const [isTagDialogOpen, setIsTagDialogOpen] = useState(false)
-  const [editingTag, setEditingTag] = useState<AdminTag | null>(null)
-  const [tagForm, setTagForm] = useState({ name: "", description: "" })
-  const [isSavingTag, setIsSavingTag] = useState(false)
 
   // Project Type Dialog
   const [isTypeDialogOpen, setIsTypeDialogOpen] = useState(false)
@@ -60,15 +53,13 @@ export function SettingsPage() {
 
   const loadData = async () => {
     try {
-      const [settingsData, tagsData, typesData, templatesData] = await Promise.all([
+      const [settingsData, typesData, templatesData] = await Promise.all([
         settingsService.getSettings(),
-        settingsService.getAdminTags(),
         projectService.getProjectTypes(),
         projectService.getWorkflowTemplates(),
       ])
       setSettings(settingsData)
       setAgeThreshold(settingsData.youthAgeThreshold)
-      setAdminTags(tagsData)
       setProjectTypes(typesData)
       setWorkflowTemplates(templatesData)
     } catch (error) {
@@ -89,50 +80,6 @@ export function SettingsPage() {
       alert("儲存失敗")
     } finally {
       setIsSavingSettings(false)
-    }
-  }
-
-  // === Admin Tags ===
-  const openTagDialog = (tag?: AdminTag) => {
-    setEditingTag(tag || null)
-    setTagForm({
-      name: tag?.name || "",
-      description: tag?.description || "",
-    })
-    setIsTagDialogOpen(true)
-  }
-
-  const handleSaveTag = async () => {
-    if (!tagForm.name.trim()) {
-      alert("請填寫標籤名稱")
-      return
-    }
-
-    setIsSavingTag(true)
-    try {
-      if (editingTag) {
-        await settingsService.updateAdminTag(editingTag.id, tagForm)
-      } else {
-        await settingsService.createAdminTag(tagForm)
-      }
-      await loadData()
-      setIsTagDialogOpen(false)
-    } catch (error) {
-      console.error("Failed to save tag:", error)
-      alert("儲存失敗")
-    } finally {
-      setIsSavingTag(false)
-    }
-  }
-
-  const handleDeleteTag = async (tag: AdminTag) => {
-    if (!confirm(`確定要刪除標籤「${tag.name}」嗎？`)) return
-
-    try {
-      await settingsService.deleteAdminTag(tag.id)
-      await loadData()
-    } catch (error) {
-      console.error("Failed to delete tag:", error)
     }
   }
 
@@ -274,14 +221,10 @@ export function SettingsPage() {
       </div>
 
       <Tabs defaultValue="general">
-        <TabsList className="grid w-full grid-cols-4">
+        <TabsList className="grid w-full grid-cols-3">
           <TabsTrigger value="general" className="flex items-center gap-2">
             <Settings className="h-4 w-4" />
             <span className="hidden sm:inline">一般設定</span>
-          </TabsTrigger>
-          <TabsTrigger value="tags" className="flex items-center gap-2">
-            <Users className="h-4 w-4" />
-            <span className="hidden sm:inline">管理員標籤</span>
           </TabsTrigger>
           <TabsTrigger value="types" className="flex items-center gap-2">
             <FileText className="h-4 w-4" />
@@ -326,67 +269,6 @@ export function SettingsPage() {
               <Button onClick={handleSaveSettings} disabled={isSavingSettings}>
                 {isSavingSettings ? "儲存中..." : "儲存設定"}
               </Button>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        {/* Admin Tags */}
-        <TabsContent value="tags" className="mt-6">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between">
-              <div>
-                <CardTitle>管理員標籤</CardTitle>
-                <CardDescription>
-                  用於指派審批權限的管理員標籤
-                </CardDescription>
-              </div>
-              <Button onClick={() => openTagDialog()}>
-                <Plus className="h-4 w-4 mr-1" />
-                新增標籤
-              </Button>
-            </CardHeader>
-            <CardContent>
-              {adminTags.length === 0 ? (
-                <div className="text-center py-8 text-muted-foreground">
-                  尚無標籤，點擊上方按鈕新增
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  {adminTags.map((tag) => (
-                    <div
-                      key={tag.id}
-                      className="flex items-center justify-between p-3 bg-muted/50 rounded-lg"
-                    >
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <Badge>{tag.name}</Badge>
-                        </div>
-                        {tag.description && (
-                          <p className="text-sm text-muted-foreground mt-1">
-                            {tag.description}
-                          </p>
-                        )}
-                      </div>
-                      <div className="flex gap-2">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => openTagDialog(tag)}
-                        >
-                          <Pencil className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => handleDeleteTag(tag)}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
             </CardContent>
           </Card>
         </TabsContent>
@@ -504,46 +386,6 @@ export function SettingsPage() {
           </Card>
         </TabsContent>
       </Tabs>
-
-      {/* Admin Tag Dialog */}
-      <Dialog open={isTagDialogOpen} onOpenChange={setIsTagDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{editingTag ? "編輯標籤" : "新增標籤"}</DialogTitle>
-            <DialogDescription>設定管理員標籤資訊</DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <Label>標籤名稱 *</Label>
-              <Input
-                value={tagForm.name}
-                onChange={(e) => setTagForm({ ...tagForm, name: e.target.value })}
-                placeholder="例如：財務組長"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>描述</Label>
-              <Input
-                value={tagForm.description}
-                onChange={(e) =>
-                  setTagForm({ ...tagForm, description: e.target.value })
-                }
-                placeholder="選填"
-              />
-            </div>
-          </div>
-
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setIsTagDialogOpen(false)}>
-              取消
-            </Button>
-            <Button onClick={handleSaveTag} disabled={isSavingTag}>
-              {isSavingTag ? "儲存中..." : "儲存"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
 
       {/* Project Type Dialog */}
       <Dialog open={isTypeDialogOpen} onOpenChange={setIsTypeDialogOpen}>

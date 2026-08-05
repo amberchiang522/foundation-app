@@ -128,6 +128,15 @@ const mockProjectService = {
     })
   },
 
+  async deleteProject(id: string): Promise<boolean> {
+    await new Promise(resolve => setTimeout(resolve, 300))
+    const index = projects.findIndex(p => p.id === id)
+    if (index === -1) return false
+
+    projects.splice(index, 1)
+    return true
+  },
+
   // Project Types
   async getProjectTypes(): Promise<ProjectType[]> {
     await new Promise(resolve => setTimeout(resolve, 200))

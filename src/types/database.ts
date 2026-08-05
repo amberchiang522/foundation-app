@@ -11,7 +11,7 @@ export type Json =
 
 // Enum types matching PostgreSQL
 export type VolunteerType = 'youth' | 'social'
-export type UserRole = 'volunteer' | 'admin'
+export type UserRole = 'volunteer' | 'staff' | 'admin' | 'super_admin'
 export type UserStatus = 'active' | 'suspended'
 export type ApplicationStatus = 'pending' | 'approved' | 'rejected' | 'needs_revision'
 export type PlanStatus = 'active' | 'archived'
