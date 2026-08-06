@@ -1334,9 +1334,9 @@ export function PlansPage() {
     }
 
     return (
-      <div className="flex flex-col h-full">
+      <div className="flex flex-col h-full w-full overflow-hidden">
         {/* Header */}
-        <div className="p-4 border-b">
+        <div className="p-4 border-b shrink-0 overflow-hidden">
           {/* Mobile back button */}
           <div className="flex items-center gap-2 mb-2 md:hidden">
             <Button
@@ -1427,13 +1427,17 @@ export function PlansPage() {
           </div>
         </div>
 
-        <ScrollArea className="flex-1 p-4">
-          <div className="space-y-6">
+        <ScrollArea className="flex-1 overflow-x-hidden">
+          <div className="p-4 space-y-6">
             {/* Workflow Progress */}
             <div>
               <h3 className="font-medium mb-3">流程進度</h3>
-              <div ref={workflowScrollRef} className="overflow-x-auto pb-2">
-                <div className="flex gap-4 py-4 px-3 bg-muted/30 rounded-lg min-w-max items-start justify-center">
+              <div
+                ref={workflowScrollRef}
+                className="overflow-x-auto pb-2 scrollbar-hide"
+                style={{ WebkitOverflowScrolling: 'touch' }}
+              >
+                <div className="flex gap-3 py-4 px-2 bg-muted/30 rounded-lg w-max items-start">
                   {selectedProject.workflow.map((step, index) => {
                     const hasSubTasks = step.subTasks && step.subTasks.length > 0
                     const subTasksCompleted = step.subTasks?.filter((st) => st.completed).length || 0
@@ -1553,7 +1557,7 @@ export function PlansPage() {
                           className={cn(
                             "flex flex-col items-center transition-all",
                             isCurrentStep ? "min-w-[70px]" : "min-w-[50px]",
-                            isInactive && "opacity-50"
+                            isInactive && "opacity-40"
                           )}
                         >
                           {/* Step Circle - becomes button(s) when approval needed */}
@@ -1713,13 +1717,14 @@ export function PlansPage() {
                           {/* Step Name */}
                           <span className={cn(
                             "mt-2 text-center font-medium leading-tight",
-                            isCurrentStep ? "text-sm" : "text-xs"
+                            isCurrentStep ? "text-sm" : "text-xs",
+                            isInactive && "opacity-40"
                           )}>
                             {step.name}
                           </span>
 
-                          {/* Role Info */}
-                          {roleInfo && (
+                          {/* Role Info - only show for non-inactive steps */}
+                          {roleInfo && !isInactive && (
                             <div className={cn(
                               "text-muted-foreground mt-0.5 text-center",
                               isCurrentStep ? "text-xs" : "text-[10px]"
@@ -2487,7 +2492,7 @@ export function PlansPage() {
         </div>
 
         {/* Mobile: Single column with view switching */}
-        <div className="md:hidden h-full">
+        <div className="md:hidden h-full w-full overflow-hidden">
           {mobileView === "plans" && <PlansColumn />}
           {mobileView === "projects" && <ProjectsColumn />}
           {mobileView === "detail" && <ProjectDetailColumn />}
