@@ -23,13 +23,13 @@ export function DashboardLayout() {
       />
 
       {/* Main Content */}
-      <div className="flex-1 flex flex-col">
+      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
         <DashboardHeader
           onMenuClick={() => setMobileMenuOpen(true)}
           userName={user?.name || '使用者'}
           onLogout={logout}
         />
-        <main className="flex-1 p-4 lg:p-6">
+        <main className="flex-1 p-4 lg:p-6 overflow-hidden">
           <Outlet />
         </main>
       </div>

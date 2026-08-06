@@ -157,9 +157,6 @@ export function PlansPage() {
   const inlineExecContentRef = useRef<HTMLTextAreaElement>(null)
   const [inlineExecAttachments, setInlineExecAttachments] = useState<ImageUploadResult[]>([])
 
-  // Ref for workflow progress scroll container
-  const workflowScrollRef = useRef<HTMLDivElement>(null)
-  const currentStepRef = useRef<HTMLDivElement>(null)
 
   // Edit mode for pending executions
   const [editingExecutionId, setEditingExecutionId] = useState<string | null>(null)
@@ -206,19 +203,6 @@ export function PlansPage() {
     }
   }, [selectedProject])
 
-  // Scroll workflow progress to center current step on mobile
-  useEffect(() => {
-    if (selectedProject && currentStepRef.current && workflowScrollRef.current) {
-      // Small delay to ensure DOM is ready
-      setTimeout(() => {
-        currentStepRef.current?.scrollIntoView({
-          behavior: "smooth",
-          block: "nearest",
-          inline: "center",
-        })
-      }, 100)
-    }
-  }, [selectedProject?.id, selectedProject?.currentStep])
 
   const loadProjectExecutions = async (projectId: string) => {
     setIsLoadingExecutions(true)
@@ -1427,14 +1411,14 @@ export function PlansPage() {
           </div>
         </div>
 
-        <ScrollArea className="flex-1 overflow-x-hidden">
+        <div className="flex-1 min-w-0 overflow-y-auto overflow-x-hidden">
           <div className="p-4 space-y-6">
             {/* Workflow Progress */}
-            <div>
+            <div className="w-full">
               <h3 className="font-medium mb-3">流程進度</h3>
+              {/* 橫向滾動容器 */}
               <div
-                ref={workflowScrollRef}
-                className="overflow-x-auto pb-2 scrollbar-hide"
+                className="overflow-x-auto pb-2 -mx-4 px-4"
                 style={{ WebkitOverflowScrolling: 'touch' }}
               >
                 <div className="flex gap-3 py-4 px-2 bg-muted/30 rounded-lg w-max items-start">
@@ -1445,7 +1429,8 @@ export function PlansPage() {
                     // 判斷是否為目前步驟：索引符合且狀態為 in_progress 或未設定狀態（向下相容舊資料）
                     const isCurrentStep = index === selectedProject.currentStep &&
                       (step.status === "in_progress" || !step.status || step.status === "pending" && index === 0)
-                    const isInactive = step.status === "pending" && index !== selectedProject.currentStep
+                    // 判斷是否為還沒輪到的步驟：pending 狀態或未設定狀態且不是當前步驟
+                    const isInactive = (step.status === "pending" || (!step.status && index > selectedProject.currentStep)) && !isCurrentStep
 
                     // Get approver/assignee info
                     // Get role info for display
@@ -1550,14 +1535,15 @@ export function PlansPage() {
                     return (
                       <div
                         key={step.id}
-                        ref={isCurrentStep ? currentStepRef : undefined}
-                        className="flex items-start gap-3"
+                        className={cn(
+                          "flex items-start gap-3",
+                          isInactive && "opacity-40"
+                        )}
                       >
                         <div
                           className={cn(
                             "flex flex-col items-center transition-all",
-                            isCurrentStep ? "min-w-[70px]" : "min-w-[50px]",
-                            isInactive && "opacity-40"
+                            isCurrentStep ? "min-w-[70px]" : "min-w-[50px]"
                           )}
                         >
                           {/* Step Circle - becomes button(s) when approval needed */}
@@ -1717,8 +1703,7 @@ export function PlansPage() {
                           {/* Step Name */}
                           <span className={cn(
                             "mt-2 text-center font-medium leading-tight",
-                            isCurrentStep ? "text-sm" : "text-xs",
-                            isInactive && "opacity-40"
+                            isCurrentStep ? "text-sm" : "text-xs"
                           )}>
                             {step.name}
                           </span>
@@ -1771,8 +1756,8 @@ export function PlansPage() {
             </div>
 
             {/* 專案內容 - Document Style */}
-            <Card>
-                <CardContent className="p-0">
+            <Card className="overflow-hidden">
+                <CardContent className="p-0 overflow-hidden">
                   {selectedProject.workflow
                     .filter(
                       (step) => {
@@ -1824,7 +1809,7 @@ export function PlansPage() {
                         <div
                           key={step.id}
                           className={cn(
-                            "p-4",
+                            "p-4 overflow-hidden",
                             idx !== filteredSteps.length - 1 && "border-b"
                           )}
                         >
@@ -2108,8 +2093,8 @@ export function PlansPage() {
 
                               {/* Attachments - Horizontal Scroll */}
                               {step.attachments && step.attachments.length > 0 && (
-                                <div className="overflow-x-auto pb-2">
-                                  <div className="flex gap-4" style={{ minWidth: "min-content" }}>
+                                <div className="overflow-x-auto pb-2 -mx-4 px-4" style={{ WebkitOverflowScrolling: 'touch' }}>
+                                  <div className="flex gap-4 w-max">
                                     {step.attachments.map((attachment) => (
                                       <button
                                         key={attachment.id}
@@ -2146,8 +2131,8 @@ export function PlansPage() {
 
                               {/* Execution submissions for approval steps - horizontal scroll */}
                               {currentStepExecutions.length > 0 && (
-                                <div className="overflow-x-auto pb-2">
-                                  <div className="flex gap-4" style={{ minWidth: "min-content" }}>
+                                <div className="overflow-x-auto pb-2 -mx-4 px-4" style={{ WebkitOverflowScrolling: 'touch' }}>
+                                  <div className="flex gap-4 w-max">
                                   {currentStepExecutions.map((execution) => {
                                     const isEditing = editingExecutionId === execution.id
                                     // Can edit if: pending AND (super_admin OR original submitter)
@@ -2443,13 +2428,13 @@ export function PlansPage() {
               建立於 {format(new Date(selectedProject.createdAt), "yyyy/MM/dd HH:mm")}
             </div>
           </div>
-        </ScrollArea>
+        </div>
       </div>
     )
   }
 
   return (
-    <div className="h-[calc(100vh-8rem)]">
+    <div className="h-[calc(100vh-8rem)] overflow-hidden">
       {/* Page Header */}
       <div className="flex items-center justify-between mb-4">
         <div>
