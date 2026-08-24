@@ -2,7 +2,6 @@ import { createBrowserRouter } from "react-router-dom"
 
 // Public pages
 import {
-  HomePage,
   ActivitiesPage,
   PastActivitiesPage,
   ActivityDetailPage,
@@ -10,6 +9,12 @@ import {
   ApplyStatusPage,
   ApplyEditPage,
   LoginPage,
+  AboutPage,
+  EventsPage,
+  EventReviewDetailPage,
+  PlanDetailPage,
+  ForumPostDetailPage,
+  ForumPage,
 } from "@/pages/public"
 
 // Dashboard pages
@@ -27,6 +32,8 @@ import {
   ReportsPage,
   SettingsPage,
   AccountManagePage,
+  EventReviewsPage,
+  ForumManagePage,
 } from "@/pages/dashboard"
 
 // Layouts
@@ -42,13 +49,19 @@ export const router = createBrowserRouter([
     path: "/",
     element: <PublicLayout />,
     children: [
-      { index: true, element: <HomePage /> },
+      { index: true, element: <AboutPage /> },
       { path: "activities", element: <ActivitiesPage /> },
       { path: "activities/past", element: <PastActivitiesPage /> },
       { path: "activities/:id", element: <ActivityDetailPage /> },
       { path: "apply", element: <ApplyPage /> },
       { path: "apply/status", element: <ApplyStatusPage /> },
       { path: "apply/edit/:token", element: <ApplyEditPage /> },
+      { path: "about", element: <AboutPage /> },
+      { path: "events", element: <EventsPage /> },
+      { path: "events/:id", element: <EventReviewDetailPage /> },
+      { path: "plans/:id", element: <PlanDetailPage /> },
+      { path: "forum", element: <ForumPage /> },
+      { path: "forum/:id", element: <ForumPostDetailPage /> },
       { path: "login", element: <LoginPage /> },
     ],
   },
@@ -127,6 +140,22 @@ export const router = createBrowserRouter([
         element: (
           <ProtectedRoute requireAdmin>
             <SettingsPage />
+          </ProtectedRoute>
+        ),
+      },
+      {
+        path: "event-reviews",
+        element: (
+          <ProtectedRoute requireAdmin>
+            <EventReviewsPage />
+          </ProtectedRoute>
+        ),
+      },
+      {
+        path: "forum",
+        element: (
+          <ProtectedRoute requireAdmin>
+            <ForumManagePage />
           </ProtectedRoute>
         ),
       },

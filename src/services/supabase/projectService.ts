@@ -12,6 +12,14 @@ function transformPlan(row: Record<string, unknown>): Plan {
     createdBy: row.created_by as string,
     createdAt: row.created_at as string,
     updatedAt: row.updated_at as string,
+    // 公開設定
+    isPublic: row.is_public as boolean | undefined,
+    publicOrder: row.public_order as number | undefined,
+    coverImage: row.cover_image as Plan['coverImage'],
+    cardDescription: (row.card_description as string) || undefined,
+    publicDescription: (row.public_description as string) || undefined,
+    introPdf: row.intro_pdf as Plan['introPdf'],
+    downloadPdfs: (row.download_pdfs as Plan['downloadPdfs']) || [],
   }
 }
 
@@ -102,6 +110,14 @@ export const supabaseProjectService = {
         workflow: planData.workflow,
         status: planData.status,
         created_by: userId,
+        // 公開設定
+        is_public: planData.isPublic || false,
+        public_order: planData.publicOrder || 0,
+        cover_image: planData.coverImage,
+        card_description: planData.cardDescription,
+        public_description: planData.publicDescription,
+        intro_pdf: planData.introPdf,
+        download_pdfs: planData.downloadPdfs || [],
       })
       .select()
       .single()
@@ -120,6 +136,14 @@ export const supabaseProjectService = {
     if (planData.type !== undefined) updateData.type = planData.type
     if (planData.workflow !== undefined) updateData.workflow = planData.workflow
     if (planData.status !== undefined) updateData.status = planData.status
+    // 公開設定
+    if (planData.isPublic !== undefined) updateData.is_public = planData.isPublic
+    if (planData.publicOrder !== undefined) updateData.public_order = planData.publicOrder
+    if (planData.coverImage !== undefined) updateData.cover_image = planData.coverImage
+    if (planData.cardDescription !== undefined) updateData.card_description = planData.cardDescription
+    if (planData.publicDescription !== undefined) updateData.public_description = planData.publicDescription
+    if (planData.introPdf !== undefined) updateData.intro_pdf = planData.introPdf
+    if (planData.downloadPdfs !== undefined) updateData.download_pdfs = planData.downloadPdfs
 
     const { data: updated, error } = await supabase
       .from('plans')

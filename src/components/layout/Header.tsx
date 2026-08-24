@@ -30,6 +30,12 @@ export function Header() {
           <Link to="/activities" className="transition-colors hover:text-primary">
             活動列表
           </Link>
+          <Link to="/events" className="transition-colors hover:text-primary">
+            活動回顧
+          </Link>
+          <Link to="/forum" className="transition-colors hover:text-primary">
+            討論區
+          </Link>
           <Link to="/apply" className="transition-colors hover:text-primary">
             參加志工
           </Link>
@@ -78,6 +84,20 @@ export function Header() {
             onClick={() => setMobileMenuOpen(false)}
           >
             活動列表
+          </Link>
+          <Link
+            to="/events"
+            className="block py-2 transition-colors hover:text-primary"
+            onClick={() => setMobileMenuOpen(false)}
+          >
+            活動回顧
+          </Link>
+          <Link
+            to="/forum"
+            className="block py-2 transition-colors hover:text-primary"
+            onClick={() => setMobileMenuOpen(false)}
+          >
+            討論區
           </Link>
           <Link
             to="/apply"

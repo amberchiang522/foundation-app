@@ -9,6 +9,9 @@ export type ImageType =
   | 'volunteer-avatar'    // 志工大頭照
   | 'project-result'      // 專案成果圖
   | 'receipt'             // 收據單據
+  | 'event-review'        // 活動回顧圖片
+  | 'plan-cover'          // 計畫封面圖
+  | 'forum-image'         // 討論區圖片
 
 // Image configuration per type
 export const imageConfig: Record<ImageType, {
@@ -52,6 +55,27 @@ export const imageConfig: Record<ImageType, {
     required: true,
     compress: false,
     thumbnailSize: { width: 300, height: 0 }, // auto height
+  },
+  'event-review': {
+    aspectRatio: '16:9',
+    maxCount: 10,
+    required: false,
+    compress: true,
+    thumbnailSize: { width: 400, height: 225 },
+  },
+  'plan-cover': {
+    aspectRatio: '4:3',
+    maxCount: 1,
+    required: false,
+    compress: true,
+    thumbnailSize: { width: 400, height: 300 },
+  },
+  'forum-image': {
+    aspectRatio: 'free',
+    maxCount: 5,
+    required: false,
+    compress: true,
+    thumbnailSize: { width: 300, height: 0 },
   },
 }
 
@@ -106,6 +130,9 @@ const unsplashCategories: Record<ImageType, string> = {
   'volunteer-avatar': 'portrait,face',
   'project-result': 'achievement,success,community',
   'receipt': 'document,paper',
+  'event-review': 'event,celebration,community',
+  'plan-cover': 'charity,foundation,community',
+  'forum-image': 'discussion,meeting,people',
 }
 
 // Mock Image Service for Phase 1

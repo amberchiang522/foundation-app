@@ -175,6 +175,15 @@ export interface WorkflowStepExecutionWithDetails extends WorkflowStepExecution 
 // Plan types
 export type PlanStatus = 'active' | 'archived'
 
+// PDF 資料結構（支援靜態檔案和上傳檔案）
+export interface PDFData {
+  id: string
+  url: string
+  fileName: string
+  fileSize?: number      // 可選，靜態檔案不需要
+  uploadedAt?: string    // 可選，靜態檔案不需要
+}
+
 export interface Plan {
   id: string
   name: string
@@ -187,6 +196,15 @@ export interface Plan {
   createdBy: string
   createdAt: string
   updatedAt: string
+
+  // 公開設定
+  isPublic?: boolean
+  publicOrder?: number
+  coverImage?: ImageData
+  cardDescription?: string      // 卡片簡介（首頁顯示）
+  publicDescription?: string    // 詳細介紹文字
+  introPdf?: PDFData
+  downloadPdfs?: PDFData[]
 
   // Computed fields
   organizationCount?: number
@@ -253,6 +271,7 @@ export type RegistrationMode = 'direct' | 'approval'
 export interface Activity {
   id: string
   projectId?: string
+  planId?: string  // 關聯計畫
 
   name: string
   description: string
@@ -426,4 +445,95 @@ export interface UpcomingVisitWithDetails extends UpcomingVisit {
     id: string
     name: string
   }>
+}
+
+// =====================================================
+// 活動回顧 Types
+// =====================================================
+
+export interface EventReview {
+  id: string
+  planId: string
+  title: string
+  content: string
+  eventDate?: string
+  images: ImageData[]
+  isPublished: boolean
+  publishedAt?: string
+  displayOrder: number
+  createdBy: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface EventReviewWithDetails extends EventReview {
+  plan?: {
+    id: string
+    name: string
+  }
+  author?: {
+    id: string
+    name: string
+  }
+}
+
+// =====================================================
+// 討論區 Types
+// =====================================================
+
+export type ForumPostStatus = 'pending' | 'active' | 'closed' | 'archived'
+
+export interface ForumPost {
+  id: string
+  planId?: string
+  title: string
+  content: string
+  images: ImageData[]
+  status: ForumPostStatus
+  isPinned: boolean
+  viewCount: number
+  replyCount: number
+  lastReplyAt?: string
+  lastReplyBy?: string
+  createdBy: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface ForumPostWithDetails extends ForumPost {
+  plan?: {
+    id: string
+    name: string
+  }
+  author?: {
+    id: string
+    name: string
+    avatar?: ImageData
+    createdAt?: string  // 志工加入時間
+  }
+  lastReplyAuthor?: {
+    id: string
+    name: string
+  }
+}
+
+export interface ForumReply {
+  id: string
+  postId: string
+  parentId?: string
+  content: string
+  images: ImageData[]
+  isDeleted: boolean
+  createdBy: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface ForumReplyWithDetails extends ForumReply {
+  author?: {
+    id: string
+    name: string
+    avatar?: ImageData
+  }
+  replies?: ForumReplyWithDetails[]
 }
