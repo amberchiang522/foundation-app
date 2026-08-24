@@ -28,11 +28,11 @@ export function HomePage() {
   return (
     <div className="space-y-12">
       {/* Hero Section */}
-      <section className="text-center py-12 md:py-20 space-y-6">
+      <section className="text-center py-16 md:py-24 space-y-8">
         <img
           src="/logo.png"
           alt="鴻勁公益慈善基金會"
-          className="h-32 md:h-44 lg:h-52 w-auto mx-auto object-contain"
+          className="h-40 md:h-56 lg:h-72 w-auto mx-auto object-contain"
           onError={(e) => {
             // Hide image if not found
             (e.target as HTMLImageElement).style.display = 'none'

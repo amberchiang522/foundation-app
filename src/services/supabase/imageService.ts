@@ -10,6 +10,9 @@ const bucketMap: Record<ImageType, string> = {
   'volunteer-avatar': 'avatars',
   'project-result': 'projects',
   'receipt': 'projects',
+  'event-review': 'activities',
+  'plan-cover': 'plans',
+  'forum-image': 'forum',
 }
 
 // Generate unique file path
@@ -109,6 +112,12 @@ class SupabaseImageService implements ImageService {
       bucket = 'avatars'
     } else if (id.startsWith('project') || id.startsWith('receipt')) {
       bucket = 'projects'
+    } else if (id.startsWith('plan') || id.startsWith('pdfs')) {
+      bucket = 'plans'
+    } else if (id.startsWith('forum')) {
+      bucket = 'forum'
+    } else if (id.startsWith('event-review')) {
+      bucket = 'activities'
     }
 
     const { error } = await supabase.storage

@@ -5,6 +5,7 @@ function transformActivity(row: Record<string, unknown>): Activity {
   return {
     id: row.id as string,
     projectId: row.project_id as string | undefined,
+    planId: row.plan_id as string | undefined,
     name: row.name as string,
     description: (row.description as string) || '',
     date: row.date as string,
@@ -103,6 +104,7 @@ export const supabaseActivityService = {
       .from('activities')
       .insert({
         project_id: activityData.projectId,
+        plan_id: activityData.planId,
         name: activityData.name,
         description: activityData.description,
         date: activityData.date,
@@ -134,6 +136,7 @@ export const supabaseActivityService = {
     if (activityData.location !== undefined) updateData.location = activityData.location
     if (activityData.locationUrl !== undefined) updateData.location_url = activityData.locationUrl
     if (activityData.type !== undefined) updateData.type = activityData.type
+    if (activityData.planId !== undefined) updateData.plan_id = activityData.planId
     if (activityData.coverImage !== undefined) updateData.cover_image = activityData.coverImage
     if (activityData.contentImages !== undefined) updateData.content_images = activityData.contentImages
     if (activityData.capacity !== undefined) updateData.capacity = activityData.capacity

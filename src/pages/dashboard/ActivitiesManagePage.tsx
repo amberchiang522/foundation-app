@@ -30,11 +30,11 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { ImageUploader, MultiImageUploader } from "@/components/upload"
+import { ImageUploader, MultiImageUploader, GoogleDriveInput } from "@/components/upload"
 import { useAuth } from "@/contexts/AuthContext"
-import { activityService, userService, type ImageUploadResult } from "@/services"
-import type { Activity, ActivityRegistration, User, ImageData } from "@/types"
-import { Plus, Edit, Users, Archive, Calendar, MapPin, Clock, Trash2, ExternalLink } from "lucide-react"
+import { activityService, userService, eventReviewService, projectService, type ImageUploadResult } from "@/services"
+import type { Activity, ActivityRegistration, User, ImageData, Plan } from "@/types"
+import { Plus, Edit, Users, Archive, Calendar, MapPin, Clock, Trash2, ExternalLink, Images } from "lucide-react"
 
 const statusLabels: Record<Activity["status"], string> = {
   upcoming: "即將開始",
@@ -67,10 +67,24 @@ export function ActivitiesManagePage() {
     type: "",
     capacity: "",
     registrationMode: "direct" as "direct" | "approval",
+    planId: "",  // 關聯計畫
   })
   const [coverImage, setCoverImage] = useState<ImageUploadResult | null>(null)
   const [contentImages, setContentImages] = useState<ImageUploadResult[]>([])
   const [isSaving, setIsSaving] = useState(false)
+
+  // Event Review state
+  const [plans, setPlans] = useState<Plan[]>([])
+  const [isReviewFormOpen, setIsReviewFormOpen] = useState(false)
+  const [reviewFormData, setReviewFormData] = useState({
+    title: "",
+    content: "",
+    planId: "",
+    eventDate: "",
+  })
+  const [reviewImages, setReviewImages] = useState<ImageData[]>([])
+  const [reviewingActivity, setReviewingActivity] = useState<Activity | null>(null)
+  const [isSavingReview, setIsSavingReview] = useState(false)
 
   useEffect(() => {
     loadActivities()
@@ -78,8 +92,12 @@ export function ActivitiesManagePage() {
 
   const loadActivities = async () => {
     try {
-      const data = await activityService.getActivities()
-      setActivities(data)
+      const [activitiesData, plansData] = await Promise.all([
+        activityService.getActivities(),
+        projectService.getPlans(),
+      ])
+      setActivities(activitiesData)
+      setPlans(plansData.filter(p => p.status === 'active'))
     } catch (error) {
       console.error("Failed to load activities:", error)
     } finally {
@@ -98,6 +116,7 @@ export function ActivitiesManagePage() {
       type: "",
       capacity: "",
       registrationMode: "direct",
+      planId: "",
     })
     setCoverImage(null)
     setContentImages([])
@@ -115,6 +134,7 @@ export function ActivitiesManagePage() {
       type: activity.type,
       capacity: String(activity.capacity),
       registrationMode: activity.registrationMode,
+      planId: activity.planId || "",
     })
     // Load existing images
     setCoverImage(activity.coverImage as ImageUploadResult | null || null)
@@ -141,6 +161,7 @@ export function ActivitiesManagePage() {
         type: formData.type || "一般",
         capacity: parseInt(formData.capacity),
         registrationMode: formData.registrationMode,
+        planId: formData.planId || undefined,
         coverImage: coverImage as ImageData | undefined,
         contentImages: contentImages as ImageData[],
         status: "upcoming" as const,
@@ -229,6 +250,51 @@ export function ActivitiesManagePage() {
       }
     } catch (error) {
       console.error("Failed to approve:", error)
+    }
+  }
+
+  // Event Review handlers
+  const openReviewForm = (activity: Activity) => {
+    setReviewingActivity(activity)
+    // Auto-generate title
+    const autoTitle = `${activity.name} 活動回顧`
+    setReviewFormData({
+      title: autoTitle,
+      content: "",
+      planId: "", // User can select a plan
+      eventDate: activity.date.slice(0, 10), // Just the date part
+    })
+    setReviewImages([])
+    setIsReviewFormOpen(true)
+  }
+
+  const handleSaveReview = async () => {
+    if (!user || !reviewFormData.title) {
+      alert("請填寫標題")
+      return
+    }
+
+    setIsSavingReview(true)
+    try {
+      await eventReviewService.createReview({
+        planId: reviewFormData.planId || "",  // 可以為空
+        title: reviewFormData.title,
+        content: reviewFormData.content,
+        eventDate: reviewFormData.eventDate || undefined,
+        images: reviewImages as ImageData[],
+        isPublished: false,
+        displayOrder: 0,
+        createdBy: user.id,
+      })
+
+      setIsReviewFormOpen(false)
+      setReviewingActivity(null)
+      alert("活動回顧已建立！請到活動回顧管理頁面發布。")
+    } catch (error) {
+      console.error("Failed to create review:", error)
+      alert("建立失敗，請稍後再試")
+    } finally {
+      setIsSavingReview(false)
     }
   }
 
@@ -406,6 +472,17 @@ export function ActivitiesManagePage() {
                             size="sm"
                             onClick={(e) => {
                               e.stopPropagation()
+                              openReviewForm(activity)
+                            }}
+                            title="新增回顧"
+                          >
+                            <Images className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={(e) => {
+                              e.stopPropagation()
                               openRegistrations(activity)
                             }}
                           >
@@ -521,6 +598,26 @@ export function ActivitiesManagePage() {
                   </SelectContent>
                 </Select>
               </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label>關聯計畫</Label>
+              <Select
+                value={formData.planId}
+                onValueChange={(v) => setFormData({ ...formData, planId: v })}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="選擇計畫（可選）" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="">不關聯計畫</SelectItem>
+                  {plans.map(plan => (
+                    <SelectItem key={plan.id} value={plan.id}>
+                      {plan.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
 
             <div className="space-y-2">
@@ -792,6 +889,18 @@ export function ActivitiesManagePage() {
 
               {/* Actions */}
               <DialogFooter className="gap-2">
+                {(selectedActivity.status === "completed" || selectedActivity.status === "archived") && (
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setIsDetailOpen(false)
+                      openReviewForm(selectedActivity)
+                    }}
+                  >
+                    <Images className="h-4 w-4 mr-1" />
+                    新增回顧
+                  </Button>
+                )}
                 <Button
                   variant="outline"
                   onClick={() => {
@@ -825,6 +934,86 @@ export function ActivitiesManagePage() {
               </DialogFooter>
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Event Review Form Dialog */}
+      <Dialog open={isReviewFormOpen} onOpenChange={setIsReviewFormOpen}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>新增活動回顧</DialogTitle>
+            <DialogDescription>
+              {reviewingActivity?.name && `為「${reviewingActivity.name}」新增活動回顧`}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>標題 *</Label>
+              <Input
+                value={reviewFormData.title}
+                onChange={(e) => setReviewFormData(prev => ({ ...prev, title: e.target.value }))}
+                placeholder="例如：XXX 活動回顧"
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>關聯計畫</Label>
+                <Select
+                  value={reviewFormData.planId}
+                  onValueChange={(v) => setReviewFormData(prev => ({ ...prev, planId: v }))}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="選擇計畫" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {plans.map(plan => (
+                      <SelectItem key={plan.id} value={plan.id}>
+                        {plan.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>活動日期</Label>
+                <Input
+                  type="date"
+                  value={reviewFormData.eventDate}
+                  onChange={(e) => setReviewFormData(prev => ({ ...prev, eventDate: e.target.value }))}
+                />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label>內容描述</Label>
+              <textarea
+                className="flex min-h-24 w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                value={reviewFormData.content}
+                onChange={(e) => setReviewFormData(prev => ({ ...prev, content: e.target.value }))}
+                placeholder="描述活動精彩內容..."
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label>活動照片</Label>
+              <GoogleDriveInput
+                value={reviewImages}
+                onChange={setReviewImages}
+                maxImages={50}
+              />
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsReviewFormOpen(false)}>
+              取消
+            </Button>
+            <Button onClick={handleSaveReview} disabled={isSavingReview}>
+              {isSavingReview ? "儲存中..." : "建立回顧"}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

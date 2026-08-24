@@ -24,7 +24,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { MultiImageUploader } from "@/components/upload"
+import { MultiImageUploader, StaticPDFInput, StaticMultiPDFInput, type StaticPDFData } from "@/components/upload"
 import { useAuth } from "@/contexts/AuthContext"
 import { projectService, settingsService, organizationService, workflowService, userService, type ImageUploadResult } from "@/services"
 import type {
@@ -112,7 +112,16 @@ export function PlansPage() {
     name: "",
     description: "",
     type: "",
+    // 公開設定
+    isPublic: false,
+    cardDescription: "",
+    publicDescription: "",
+    coverImage: null as ImageData | null,
+    introPdf: null as StaticPDFData | null,
+    downloadPdfs: [] as StaticPDFData[],
   })
+  // 計畫表單的編輯模式：'intro' | 'workflow'
+  const [planFormMode, setPlanFormMode] = useState<'intro' | 'workflow'>('intro')
   const [workflowSteps, setWorkflowSteps] = useState<WorkflowStep[]>([])
   const [selectedTemplate, setSelectedTemplate] = useState<string>("")
   const [isSavingPlan, setIsSavingPlan] = useState(false)
@@ -246,13 +255,20 @@ export function PlansPage() {
     setMobileView("projects")
   }
 
-  const openPlanForm = (plan?: Plan) => {
+  const openPlanForm = (plan?: Plan, mode: 'intro' | 'workflow' = 'intro') => {
     // Deep copy plan to preserve original for comparison
     setEditingPlan(plan ? JSON.parse(JSON.stringify(plan)) : null)
     setPlanFormData({
       name: plan?.name || "",
       description: plan?.description || "",
       type: plan?.type || "",
+      // 公開設定
+      isPublic: plan?.isPublic || false,
+      cardDescription: plan?.cardDescription || "",
+      publicDescription: plan?.publicDescription || "",
+      coverImage: plan?.coverImage || null,
+      introPdf: plan?.introPdf || null,
+      downloadPdfs: plan?.downloadPdfs || [],
     })
     // Deep copy workflow to avoid mutating the original
     setWorkflowSteps(
@@ -266,6 +282,7 @@ export function PlansPage() {
           ]
     )
     setSelectedTemplate("")
+    setPlanFormMode(mode)
     setIsPlanFormOpen(true)
   }
 
@@ -342,6 +359,13 @@ export function PlansPage() {
         workflow: workflowSteps,
         status: "active" as const,
         createdBy: user.id,
+        // 公開設定
+        isPublic: planFormData.isPublic,
+        cardDescription: planFormData.cardDescription,
+        publicDescription: planFormData.publicDescription,
+        coverImage: planFormData.coverImage || undefined,
+        introPdf: planFormData.introPdf || undefined,
+        downloadPdfs: planFormData.downloadPdfs,
       }
 
       if (editingPlan) {
@@ -2489,10 +2513,10 @@ export function PlansPage() {
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{editingPlan ? "編輯計畫" : "新增計畫"}</DialogTitle>
-            <DialogDescription>設定計畫基本資訊與流程</DialogDescription>
           </DialogHeader>
 
           <div className="space-y-6">
+            {/* 基本資訊（固定在最上方） */}
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
@@ -2531,7 +2555,121 @@ export function PlansPage() {
 
             <Separator />
 
-            <div className="space-y-4">
+            {/* Tab 切換 */}
+            <div className="flex border-b -mx-6 px-6">
+              <button
+                type="button"
+                className={cn(
+                  "flex-1 py-3 text-sm font-medium border-b-2 transition-colors",
+                  planFormMode === 'intro'
+                    ? "border-primary text-primary"
+                    : "border-transparent text-muted-foreground hover:text-foreground"
+                )}
+                onClick={() => setPlanFormMode('intro')}
+              >
+                前台介紹
+              </button>
+              <button
+                type="button"
+                className={cn(
+                  "flex-1 py-3 text-sm font-medium border-b-2 transition-colors",
+                  planFormMode === 'workflow'
+                    ? "border-primary text-primary"
+                    : "border-transparent text-muted-foreground hover:text-foreground"
+                )}
+                onClick={() => setPlanFormMode('workflow')}
+              >
+                流程編輯
+              </button>
+            </div>
+
+            {/* 前台介紹模式 */}
+            {planFormMode === 'intro' && (
+              <div className="space-y-5">
+                {/* 公開開關 */}
+                <div className="flex items-center justify-between p-4 bg-muted/50 rounded-lg">
+                  <div>
+                    <Label htmlFor="isPublic" className="cursor-pointer font-medium">
+                      公開到首頁
+                    </Label>
+                    <p className="text-sm text-muted-foreground mt-1">
+                      開啟後此計畫將顯示在首頁的公益計畫區塊
+                    </p>
+                  </div>
+                  <Checkbox
+                    id="isPublic"
+                    checked={planFormData.isPublic}
+                    onCheckedChange={(checked) =>
+                      setPlanFormData({ ...planFormData, isPublic: !!checked })
+                    }
+                  />
+                </div>
+
+                {/* 封面圖片 */}
+                <div className="space-y-2">
+                  <Label>封面圖片</Label>
+                  <p className="text-sm text-muted-foreground">
+                    顯示在首頁計畫卡片上的圖片
+                  </p>
+                  <MultiImageUploader
+                    type="plan-cover"
+                    value={planFormData.coverImage ? [planFormData.coverImage] : []}
+                    onChange={(images) =>
+                      setPlanFormData(prev => ({ ...prev, coverImage: images[0] || null }))
+                    }
+                  />
+                </div>
+
+                {/* 卡片簡介 */}
+                <div className="space-y-2">
+                  <Label>卡片簡介</Label>
+                  <p className="text-sm text-muted-foreground">
+                    顯示在首頁計畫卡片下方的簡短說明
+                  </p>
+                  <textarea
+                    className="flex min-h-16 w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm"
+                    value={planFormData.cardDescription}
+                    onChange={(e) =>
+                      setPlanFormData({ ...planFormData, cardDescription: e.target.value })
+                    }
+                    placeholder="輸入卡片上顯示的簡介..."
+                    maxLength={100}
+                  />
+                </div>
+
+                {/* 介紹 PDF */}
+                <div className="space-y-2">
+                  <Label>介紹 PDF</Label>
+                  <p className="text-sm text-muted-foreground">
+                    訪客點擊計畫時會直接展示此 PDF
+                  </p>
+                  <StaticPDFInput
+                    value={planFormData.introPdf}
+                    onChange={(pdf) => setPlanFormData(prev => ({ ...prev, introPdf: pdf }))}
+                    label="輸入 PDF 路徑，例如 /pdfs/intro.pdf"
+                    placeholder="/pdfs/plan-intro.pdf"
+                  />
+                </div>
+
+                {/* 下載 PDF */}
+                <div className="space-y-2">
+                  <Label>下載檔案</Label>
+                  <p className="text-sm text-muted-foreground">
+                    顯示在介紹頁下方供訪客下載
+                  </p>
+                  <StaticMultiPDFInput
+                    value={planFormData.downloadPdfs}
+                    onChange={(pdfs) => setPlanFormData(prev => ({ ...prev, downloadPdfs: pdfs }))}
+                    maxCount={10}
+                    label="新增下載檔案"
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* 流程編輯模式 */}
+            {planFormMode === 'workflow' && (
+              <div className="space-y-4">
               <div className="flex items-center justify-between">
                 <Label>流程設定</Label>
                 <Select value={selectedTemplate} onValueChange={handleTemplateChange}>
@@ -2750,6 +2888,7 @@ export function PlansPage() {
                 新增步驟
               </Button>
             </div>
+            )}
           </div>
 
           <DialogFooter>
@@ -3094,7 +3233,7 @@ export function PlansPage() {
               <FolderKanban className="h-5 w-5" />
               {viewingPlan?.name}
             </DialogTitle>
-            <DialogDescription>計畫詳情與對接機構</DialogDescription>
+            <DialogDescription>查看計畫介紹與流程</DialogDescription>
           </DialogHeader>
 
           {viewingPlan && (
@@ -3106,6 +3245,9 @@ export function PlansPage() {
                   <Badge variant="outline">
                     {projects.filter(p => p.planId === viewingPlan.id && p.status !== "archived").length} 專案
                   </Badge>
+                  {viewingPlan.isPublic && (
+                    <Badge className="bg-green-100 text-green-800">已公開</Badge>
+                  )}
                 </div>
                 {viewingPlan.description && (
                   <p className="text-sm text-muted-foreground whitespace-pre-wrap">{viewingPlan.description}</p>
@@ -3114,12 +3256,84 @@ export function PlansPage() {
 
               <Separator />
 
-              {/* Workflow Preview */}
+              {/* 前台介紹預覽 */}
               <div className="space-y-3">
-                <h3 className="font-medium flex items-center gap-2">
-                  <Play className="h-4 w-4" />
-                  流程步驟
-                </h3>
+                <div className="flex items-center justify-between">
+                  <h3 className="font-medium flex items-center gap-2">
+                    <Eye className="h-4 w-4" />
+                    前台介紹
+                  </h3>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setIsPlanViewOpen(false)
+                      openPlanForm(viewingPlan, 'intro')
+                    }}
+                  >
+                    <EditIcon className="h-3 w-3 mr-1" />
+                    編輯介紹
+                  </Button>
+                </div>
+                <div className="p-4 bg-muted/30 rounded-lg space-y-3">
+                  {viewingPlan.isPublic ? (
+                    <>
+                      {viewingPlan.coverImage && (
+                        <div className="aspect-video max-w-xs rounded-lg overflow-hidden bg-muted">
+                          <img
+                            src={viewingPlan.coverImage.thumbnailUrl || viewingPlan.coverImage.originalUrl}
+                            alt={viewingPlan.name}
+                            className="w-full h-full object-cover"
+                          />
+                        </div>
+                      )}
+                      {viewingPlan.publicDescription ? (
+                        <p className="text-sm whitespace-pre-wrap">{viewingPlan.publicDescription}</p>
+                      ) : (
+                        <p className="text-sm text-muted-foreground">尚未設定前台介紹文字</p>
+                      )}
+                      {viewingPlan.introPdf && (
+                        <div className="flex items-center gap-2 text-sm">
+                          <FileText className="h-4 w-4 text-red-500" />
+                          <span>介紹 PDF：{viewingPlan.introPdf.fileName}</span>
+                        </div>
+                      )}
+                      {viewingPlan.downloadPdfs && viewingPlan.downloadPdfs.length > 0 && (
+                        <div className="text-sm">
+                          <span className="text-muted-foreground">下載檔案：</span>
+                          {viewingPlan.downloadPdfs.map(pdf => pdf.fileName).join('、')}
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <p className="text-sm text-muted-foreground text-center py-4">
+                      此計畫尚未公開到首頁
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              <Separator />
+
+              {/* 流程預覽 */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <h3 className="font-medium flex items-center gap-2">
+                    <Play className="h-4 w-4" />
+                    流程步驟
+                  </h3>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setIsPlanViewOpen(false)
+                      openPlanForm(viewingPlan, 'workflow')
+                    }}
+                  >
+                    <EditIcon className="h-3 w-3 mr-1" />
+                    編輯流程
+                  </Button>
+                </div>
                 <div className="flex items-center justify-center gap-4 py-4 bg-muted/30 rounded-lg overflow-x-auto">
                   {viewingPlan.workflow.map((step, index) => (
                     <div key={step.id} className="flex items-center gap-3 shrink-0">
@@ -3179,15 +3393,6 @@ export function PlansPage() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsPlanViewOpen(false)}>
               關閉
-            </Button>
-            <Button
-              onClick={() => {
-                setIsPlanViewOpen(false)
-                if (viewingPlan) openPlanForm(viewingPlan)
-              }}
-            >
-              <EditIcon className="h-4 w-4 mr-2" />
-              編輯流程
             </Button>
           </DialogFooter>
         </DialogContent>
