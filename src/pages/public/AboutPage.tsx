@@ -1,8 +1,8 @@
 import { useState, useEffect } from "react"
 import { Link } from "react-router-dom"
 import { Button } from "@/components/ui/button"
-import { activityService, projectService } from "@/services"
-import type { Activity, Plan } from "@/types"
+import { activityService, planPublicService } from "@/services"
+import type { Activity, PlanPublicInfo } from "@/types"
 import { format } from "date-fns"
 import { zhTW } from "date-fns/locale"
 import {
@@ -18,7 +18,7 @@ import {
 
 export function AboutPage() {
   const [activities, setActivities] = useState<Activity[]>([])
-  const [plans, setPlans] = useState<Plan[]>([])
+  const [plans, setPlans] = useState<PlanPublicInfo[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [isLoadingPlans, setIsLoadingPlans] = useState(true)
 
@@ -36,11 +36,8 @@ export function AboutPage() {
 
     const loadPlans = async () => {
       try {
-        const allPlans = await projectService.getPlans()
-        // Filter only public plans and sort by publicOrder
-        const publicPlans = allPlans
-          .filter(p => p.isPublic && p.status === 'active')
-          .sort((a, b) => (a.publicOrder || 0) - (b.publicOrder || 0))
+        // 使用公開計畫服務（不需登入即可取得）
+        const publicPlans = await planPublicService.getPublicPlans()
         setPlans(publicPlans)
       } catch (error) {
         console.error("Failed to load plans:", error)

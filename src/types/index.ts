@@ -210,6 +210,22 @@ export interface Plan {
   organizationCount?: number
 }
 
+// 公開計畫資訊（獨立表，安全公開）
+export interface PlanPublicInfo {
+  id: string
+  planId: string
+  name: string
+  cardDescription?: string
+  publicDescription?: string
+  coverImage?: ImageData
+  introPdf?: PDFData
+  downloadPdfs?: PDFData[]
+  displayOrder: number
+  isActive: boolean
+  createdAt: string
+  updatedAt: string
+}
+
 // Project types
 export type ProjectStatus = 'active' | 'completed' | 'archived' | 'not_established'
 

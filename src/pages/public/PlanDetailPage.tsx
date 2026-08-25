@@ -21,8 +21,8 @@ const pdfStyles = `
 `
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
-import { projectService } from "@/services"
-import type { Plan } from "@/types"
+import { planPublicService } from "@/services"
+import type { PlanPublicInfo } from "@/types"
 import { ArrowLeft, Download, FileText, Images, ExternalLink } from "lucide-react"
 
 // Set up PDF.js worker
@@ -31,7 +31,7 @@ pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/b
 export function PlanDetailPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
-  const [plan, setPlan] = useState<Plan | null>(null)
+  const [plan, setPlan] = useState<PlanPublicInfo | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -53,11 +53,10 @@ export function PlanDetailPage() {
       }
 
       try {
-        const data = await projectService.getPlanById(id)
+        // 使用公開計畫服務（不需登入即可取得）
+        const data = await planPublicService.getPublicPlanById(id)
         if (!data) {
           setError("找不到此計畫")
-        } else if (!data.isPublic) {
-          setError("此計畫尚未公開")
         } else {
           setPlan(data)
         }
@@ -149,7 +148,7 @@ export function PlanDetailPage() {
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => navigate(`/events?plan=${plan.id}`)}
+                onClick={() => navigate(`/events?plan=${plan.planId}`)}
               >
                 <Images className="h-4 w-4 mr-2" />
                 活動回顧
