@@ -196,7 +196,7 @@ export function AboutPage() {
             <Loader2 className="h-8 w-8 animate-spin text-primary" />
           </div>
         ) : plans.length > 0 ? (
-          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-5">
+          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
             {plans.map((plan) => (
               <Link
                 key={plan.id}
@@ -204,7 +204,7 @@ export function AboutPage() {
                 className="group relative bg-card border rounded-2xl overflow-hidden hover:shadow-lg transition-shadow"
               >
                 {/* 圖片區域 */}
-                <div className="aspect-[4/3] bg-secondary overflow-hidden">
+                <div className="aspect-[16/10] bg-secondary overflow-hidden">
                   {plan.coverImage ? (
                     <img
                       src={plan.coverImage.originalUrl}
@@ -224,13 +224,13 @@ export function AboutPage() {
                     />
                   ) : (
                     <div className="w-full h-full flex items-center justify-center">
-                      <FolderOpen className="h-12 w-12 text-muted-foreground/50" />
+                      <FolderOpen className="h-16 w-16 text-muted-foreground/50" />
                     </div>
                   )}
                 </div>
                 {/* 內容 */}
-                <div className="p-4">
-                  <h3 className="font-bold text-foreground mb-1">{plan.name}</h3>
+                <div className="p-5">
+                  <h3 className="font-bold text-lg text-foreground mb-2">{plan.name}</h3>
                   <p className="text-muted-foreground text-sm line-clamp-2">
                     {plan.cardDescription || "點擊查看詳細介紹"}
                   </p>
