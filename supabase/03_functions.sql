@@ -17,7 +17,7 @@ DECLARE
   v_threshold INTEGER;
 BEGIN
   -- Get youth age threshold from settings
-  SELECT youth_age_threshold INTO v_threshold FROM system_settings LIMIT 1;
+  SELECT youth_age_threshold INTO v_threshold FROM public.system_settings LIMIT 1;
   IF v_threshold IS NULL THEN
     v_threshold := 30;
   END IF;
@@ -37,10 +37,10 @@ BEGIN
   END IF;
 
   -- Generate volunteer number
-  v_number := generate_volunteer_number(v_type);
+  v_number := public.generate_volunteer_number(v_type);
 
   -- Create profile
-  INSERT INTO profiles (
+  INSERT INTO public.profiles (
     id,
     volunteer_number,
     type,
@@ -68,7 +68,7 @@ EXCEPTION
     RAISE LOG 'Error in handle_new_user: %', SQLERRM;
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
 -- Create trigger for new user signup
 DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;

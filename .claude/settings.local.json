@@ -20,7 +20,8 @@
       "Bash(git remote set-url:*)",
       "Bash(git remote remove:*)",
       "Bash(grep:*)",
-      "Bash(ls:*)"
+      "Bash(ls:*)",
+      "Bash(find:*)"
     ]
   }
 }
