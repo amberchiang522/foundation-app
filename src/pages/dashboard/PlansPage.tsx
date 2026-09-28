@@ -24,7 +24,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { MultiImageUploader, StaticPDFInput, StaticMultiPDFInput, type StaticPDFData } from "@/components/upload"
+import { MultiImageUploader, StaticPDFInput, StaticMultiPDFInput, PDFPageViewer, DropZone, type StaticPDFData } from "@/components/upload"
+import { imageService, validateFile } from "@/services/imageService"
 import { useAuth } from "@/contexts/AuthContext"
 import { projectService, settingsService, organizationService, workflowService, userService, type ImageUploadResult } from "@/services"
 import type {
@@ -43,6 +44,7 @@ import type {
 import {
   Plus,
   Archive,
+  Check,
   CheckCircle,
   XCircle,
   Trash2,
@@ -59,8 +61,9 @@ import {
   Search,
   Send,
   RotateCcw,
-  Bell,
   CalendarClock,
+  LayoutGrid,
+  Columns,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 
@@ -73,7 +76,7 @@ export function PlansPage() {
   const [projects, setProjects] = useState<Project[]>([])
   const [templates, setTemplates] = useState<WorkflowTemplate[]>([])
   const [adminTags, setAdminTags] = useState<AdminTag[]>([])
-  const [projectTypes, setProjectTypes] = useState<ProjectType[]>([])
+  const [_projectTypes, setProjectTypes] = useState<ProjectType[]>([])
   const [organizations, setOrganizations] = useState<OrganizationWithDetails[]>([])
   const [staffMembers, setStaffMembers] = useState<User[]>([])
   const [isLoading, setIsLoading] = useState(true)
@@ -87,7 +90,44 @@ export function PlansPage() {
   const [planSearch, setPlanSearch] = useState("")
   const [projectSearch, setProjectSearch] = useState("")
   const [showArchivedProjects, setShowArchivedProjects] = useState(false)
-  const [showTrackingList, setShowTrackingList] = useState(false)
+
+  // View mode state
+  const [viewMode, setViewMode] = useState<'card' | 'flow' | 'tracking'>('card')
+
+  // Tracking calendar state
+  const [trackingMonth, setTrackingMonth] = useState(() => {
+    const now = new Date()
+    return { year: now.getFullYear(), month: now.getMonth() }
+  })
+  const [trackingEventPopup, setTrackingEventPopup] = useState<{
+    isOpen: boolean
+    date: number
+    type: 'committee' | 'oneTime' | 'periodic'
+    title: string
+    projects: Project[]
+  } | null>(null)
+
+  // Flow view project modal state
+  const [flowProjectModal, setFlowProjectModal] = useState<Project | null>(null)
+
+  // Clear flowProjectModal when selectedProject is cleared or viewMode changes
+  useEffect(() => {
+    if (!selectedProject || viewMode !== 'flow') {
+      setFlowProjectModal(null)
+    }
+  }, [selectedProject, viewMode])
+
+  // ESC key to close flow project modal
+  useEffect(() => {
+    const handleEsc = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && flowProjectModal) {
+        setFlowProjectModal(null)
+        setSelectedProject(null)
+      }
+    }
+    window.addEventListener('keydown', handleEsc)
+    return () => window.removeEventListener('keydown', handleEsc)
+  }, [flowProjectModal])
 
   // Preview state
   const [previewFile, setPreviewFile] = useState<{ url: string; type: string; name: string } | null>(null)
@@ -112,6 +152,7 @@ export function PlansPage() {
     name: "",
     description: "",
     type: "",
+    code: "",  // 計畫英文代號
     // 公開設定
     isPublic: false,
     cardDescription: "",
@@ -121,7 +162,7 @@ export function PlansPage() {
     downloadPdfs: [] as StaticPDFData[],
   })
   // 計畫表單的編輯模式：'intro' | 'workflow'
-  const [planFormMode, setPlanFormMode] = useState<'intro' | 'workflow'>('intro')
+  const [planFormMode, setPlanFormMode] = useState<'basic' | 'intro' | 'workflow'>('basic')
   const [workflowSteps, setWorkflowSteps] = useState<WorkflowStep[]>([])
   const [selectedTemplate, setSelectedTemplate] = useState<string>("")
   const [isSavingPlan, setIsSavingPlan] = useState(false)
@@ -133,21 +174,30 @@ export function PlansPage() {
     projectType: "",
     budgetAmount: 0,
     organizationId: "",
+    sourceType: "個人" as "個人" | "機構" | "董事",
+    projectNumber: "",  // 專案編號
+    planId: "",  // 計畫ID（流程模式新增時使用）
   })
   const [firstStepAttachments, setFirstStepAttachments] = useState<ImageUploadResult[]>([])
 
   // Check if selected plan's first step requires attachment
   const firstStepRequiresAttachment = (): boolean => {
-    if (!selectedPlan || selectedPlan.workflow.length === 0) return false
-    const firstStep = selectedPlan.workflow[0]
+    const targetPlan = selectedPlan || plans.find(p => p.id === projectFormData.planId)
+    if (!targetPlan || targetPlan.workflow.length === 0) return false
+    const firstStep = targetPlan.workflow[0]
     // Check if step type is establishment or approval AND requires attachment
     const isApprovalType = firstStep.type === "establishment" || firstStep.type === "approval"
     return isApprovalType && firstStep.requireAttachment === true
   }
 
   const getFirstStepName = (): string => {
-    if (!selectedPlan || selectedPlan.workflow.length === 0) return ""
-    return selectedPlan.workflow[0].name
+    const targetPlan = selectedPlan || plans.find(p => p.id === projectFormData.planId)
+    if (!targetPlan || targetPlan.workflow.length === 0) return ""
+    return targetPlan.workflow[0].name
+  }
+
+  const getTargetPlanForForm = () => {
+    return selectedPlan || plans.find(p => p.id === projectFormData.planId)
   }
 
   const [isSavingProject, setIsSavingProject] = useState(false)
@@ -161,6 +211,43 @@ export function PlansPage() {
   const [submitForm, setSubmitForm] = useState({ content: "", attachments: [] as ImageUploadResult[] })
   const [verifyForm, setVerifyForm] = useState({ approved: true, rejectReason: "" })
   const [isProcessing, setIsProcessing] = useState(false)
+  const [reviewResult, setReviewResult] = useState<Record<string, 'approved' | 'rejected' | ''>>({})
+
+  // 評議委員會表單
+  const [committeeForm, setCommitteeForm] = useState<{
+    meetingDate: string
+    purposes: string[]  // 補助用途：急難救助, 醫療補助, 教育扶助, 喪葬補助, 生活扶助
+    subsidyType: 'oneTime' | 'periodic' | ''  // 一次性 or 期間性
+    oneTimeMonth: string  // 一次性補助月份
+    oneTimeAmount: string  // 一次性補助金額
+    periodStart: string  // 補助期間開始
+    periodEnd: string  // 補助期間結束
+    frequency: 'monthly' | 'periodic' | ''  // 每月 or 每幾月
+    periodicMonths: string  // 每__月為一期
+    periodicAmount: string  // 每期金額
+  }>({
+    meetingDate: '',
+    purposes: [],
+    subsidyType: '',
+    oneTimeMonth: '',
+    oneTimeAmount: '',
+    periodStart: '',
+    periodEnd: '',
+    frequency: '',
+    periodicMonths: '',
+    periodicAmount: '',
+  })
+  const [committeeAttachments, setCommitteeAttachments] = useState<ImageUploadResult[]>([])
+
+  // 結案與追蹤表單
+  const [closingForm, setClosingForm] = useState<{
+    paymentDate: string  // 一次性匯款日期
+    trackingDates: { date: string; completed: boolean }[]  // 追蹤日期列表
+  }>({
+    paymentDate: '',
+    trackingDates: [],
+  })
+  const [closingAttachments, setClosingAttachments] = useState<ImageUploadResult[]>([])
 
   // Inline execution form content (using ref to avoid re-render/focus issues)
   const inlineExecContentRef = useRef<HTMLTextAreaElement>(null)
@@ -169,6 +256,8 @@ export function PlansPage() {
 
   // Edit mode for pending executions
   const [editingExecutionId, setEditingExecutionId] = useState<string | null>(null)
+  // Edit mode for completed steps (track which step is being edited)
+  const [editingStepId, setEditingStepId] = useState<string | null>(null)
   const [_editExecContent, setEditExecContent] = useState("")
   const [editExecAttachments, setEditExecAttachments] = useState<ImageUploadResult[]>([])
 
@@ -262,6 +351,7 @@ export function PlansPage() {
       name: plan?.name || "",
       description: plan?.description || "",
       type: plan?.type || "",
+      code: plan?.code || "",  // 計畫英文代號
       // 公開設定
       isPublic: plan?.isPublic || false,
       cardDescription: plan?.cardDescription || "",
@@ -278,7 +368,7 @@ export function PlansPage() {
             { id: "step-1", name: "提案", type: "status" },
             { id: "step-2", name: "審核", type: "approval" },
             { id: "step-3", name: "執行中", type: "status" },
-            { id: "step-4", name: "結案", type: "status" },
+            { id: "step-4", name: "結案與追蹤", type: "status" },
           ]
     )
     setSelectedTemplate("")
@@ -356,6 +446,7 @@ export function PlansPage() {
         name: planFormData.name,
         description: planFormData.description,
         type: planFormData.type || "一般",
+        code: planFormData.code || undefined,  // 計畫英文代號
         workflow: workflowSteps,
         status: "active" as const,
         createdBy: user.id,
@@ -483,53 +574,87 @@ export function PlansPage() {
 
   const openProjectForm = (project?: Project) => {
     setEditingProject(project || null)
+    // Determine source type from description field
+    let sourceType: "個人" | "機構" | "董事" = "個人"
+    if (project?.description === "機構" || project?.description === "董事") {
+      sourceType = project.description
+    } else if (project?.organizationId) {
+      sourceType = "機構"
+    }
+    // Generate default project number: [Plan Code][ROC Year][Month][Sequential]
+    // Example: AB11509001 (AB計畫, 民國115年, 9月, 第001號)
+    const now = new Date()
+    const rocYear = now.getFullYear() - 1911  // 民國年
+    const month = String(now.getMonth() + 1).padStart(2, '0')
+    const prefix = selectedPlan?.code ? `${selectedPlan.code}${rocYear}${month}` : ""
+
+    // Find next sequential number based on existing projects
+    let nextSeq = 1
+    if (prefix && projects.length > 0) {
+      const existingNumbers = projects
+        .filter(p => p.projectNumber?.startsWith(prefix))
+        .map(p => {
+          const seq = p.projectNumber?.slice(prefix.length)
+          return seq ? parseInt(seq) : 0
+        })
+        .filter(n => !isNaN(n))
+      if (existingNumbers.length > 0) {
+        nextSeq = Math.max(...existingNumbers) + 1
+      }
+    }
+    const defaultProjectNumber = prefix ? `${prefix}${String(nextSeq).padStart(3, '0')}` : ""
+
     setProjectFormData({
       name: project?.name || "",
       description: project?.description || "",
       projectType: project?.projectType || "",
       budgetAmount: project?.budgetAmount || 0,
       organizationId: project?.organizationId || "",
+      sourceType,
+      projectNumber: project?.projectNumber || defaultProjectNumber,
+      planId: project?.planId || "",  // Reset planId for new project
     })
     setFirstStepAttachments([])  // Clear attachments when opening form
     setIsProjectFormOpen(true)
   }
 
   const handleSaveProject = async () => {
-    if (!user || !selectedPlan) return
+    if (!user) return
+
+    // Get the target plan - either selectedPlan or from form's planId
+    const targetPlan = selectedPlan || plans.find(p => p.id === projectFormData.planId)
+
+    if (!targetPlan) {
+      alert("請選擇計畫")
+      return
+    }
 
     if (!projectFormData.name) {
       alert("請填寫專案名稱")
       return
     }
 
-    // Validate first step attachment if required
-    if (!editingProject && firstStepRequiresAttachment() && firstStepAttachments.length === 0) {
-      alert(`請上傳「${getFirstStepName()}」步驟所需的附件`)
+    // Validate organization when source type is "機構"
+    if (projectFormData.sourceType === "機構" && !projectFormData.organizationId) {
+      alert("請選擇關聯機構")
       return
     }
 
-    const selectedType = projectTypes.find((t) => t.name === projectFormData.projectType)
-    if (selectedType) {
-      if (
-        projectFormData.budgetAmount < selectedType.budgetMin ||
-        projectFormData.budgetAmount > selectedType.budgetMax
-      ) {
-        alert(
-          `預算金額需在 ${selectedType.budgetMin.toLocaleString()} ~ ${selectedType.budgetMax.toLocaleString()} 範圍內`
-        )
-        return
-      }
-    }
+    // 附件可以後續補上傳，不強制要求
+
+    // Only require organization when source type is "機構"
+    const organizationId = projectFormData.sourceType === "機構" ? projectFormData.organizationId : undefined
 
     setIsSavingProject(true)
     try {
       if (editingProject) {
         await projectService.updateProject(editingProject.id, {
           name: projectFormData.name,
-          description: projectFormData.description,
+          description: projectFormData.sourceType,  // 來源存到 description
           projectType: projectFormData.projectType,
-          budgetAmount: projectFormData.budgetAmount,
-          organizationId: projectFormData.organizationId || undefined,
+          projectNumber: projectFormData.projectNumber || undefined,
+          budgetAmount: 0,
+          organizationId,
         })
       } else {
         // Convert ImageUploadResult to ImageData for storage
@@ -543,25 +668,53 @@ export function PlansPage() {
           order: img.order,
         }))
 
+        // 機構/董事 自動跳過初步篩選（第1步）
+        const skipScreening = projectFormData.sourceType === "機構" || projectFormData.sourceType === "董事"
+        const startStep = skipScreening ? 1 : 0  // 機構/董事從第2步開始，個人從第1步開始
+
         // Initialize workflow with sub-tasks from plan
-        const workflow: WorkflowStep[] = selectedPlan.workflow.map((step, index) => ({
-          ...step,
-          status: index === 0 ? "in_progress" : "pending",
-          currentRound: 1,
-          subTasks: step.subTasks?.map((st) => ({ ...st, completed: false })),
-          // Add attachments to first step if required
-          attachments: index === 0 && step.requireAttachment ? attachmentsData : step.attachments,
-        }))
+        const workflow: WorkflowStep[] = targetPlan.workflow.map((step, index) => {
+          // 決定每個步驟的狀態
+          let stepStatus: "pending" | "in_progress" | "approved" = "pending"
+          let approvedAt: string | undefined = undefined
+
+          if (index === 0) {
+            // 第1步（審核）：機構/董事自動通過，個人需要審核
+            if (skipScreening) {
+              stepStatus = "approved"
+              approvedAt = new Date().toISOString()
+            } else {
+              stepStatus = "in_progress"
+            }
+          } else if (index === startStep) {
+            // 當前進行的步驟
+            stepStatus = "in_progress"
+          }
+
+          return {
+            ...step,
+            status: stepStatus,
+            approvedAt,
+            currentRound: 1,
+            subTasks: step.subTasks?.map((st) => ({
+              ...st,
+              completed: false,
+            })),
+            // Add attachments to first step if required
+            attachments: index === 0 && step.requireAttachment ? attachmentsData : step.attachments,
+          }
+        })
 
         await projectService.createProject({
-          planId: selectedPlan.id,
-          organizationId: projectFormData.organizationId || undefined,
+          planId: targetPlan.id,
+          organizationId,
           name: projectFormData.name,
-          description: projectFormData.description,
+          description: projectFormData.sourceType,  // 來源存到 description
           projectType: projectFormData.projectType || "一般",
-          budgetAmount: projectFormData.budgetAmount,
+          projectNumber: projectFormData.projectNumber || undefined,
+          budgetAmount: 0,
           workflow,
-          currentStep: 0,
+          currentStep: startStep,
           status: "active",
           createdBy: user.id,
         })
@@ -637,36 +790,6 @@ export function PlansPage() {
     }
   }
 
-  // Tracking operations
-  const handleCloseTracking = async (project: Project) => {
-    if (!confirm("確定要關閉追蹤嗎？專案將移至封存。")) return
-
-    try {
-      await projectService.updateProject(project.id, {
-        trackingEnabled: false,
-        status: "archived",
-      })
-      await loadData()
-    } catch (error) {
-      console.error("Failed to close tracking:", error)
-    }
-  }
-
-  const handleDismissTrackingNotification = async (project: Project) => {
-    try {
-      // Calculate next tracking date
-      const nextDate = new Date()
-      nextDate.setDate(nextDate.getDate() + (project.trackingIntervalDays || 30))
-
-      await projectService.updateProject(project.id, {
-        trackingNotificationDismissed: true,
-        nextTrackingDate: nextDate.toISOString(),
-      })
-      await loadData()
-    } catch (error) {
-      console.error("Failed to dismiss notification:", error)
-    }
-  }
 
   const handleEnableTracking = async (project: Project) => {
     const intervalStr = prompt("請輸入追蹤週期（天數）", "30")
@@ -780,7 +903,7 @@ export function PlansPage() {
     }
   }
 
-  // Sub-task completion
+  // Sub-task completion (optimistic update)
   const toggleSubTaskCompletion = async (project: Project, stepIndex: number, subTaskId: string) => {
     if (!user) return
 
@@ -798,11 +921,14 @@ export function PlansPage() {
         subTask.completedAt = undefined
       }
 
-      await projectService.updateProject(project.id, { workflow: newWorkflow })
-      await loadData()
+      // 樂觀更新 UI - 立即更新本地狀態
+      setSelectedProject({ ...project, workflow: newWorkflow })
+      setProjects(prev => prev.map(p => p.id === project.id ? { ...p, workflow: newWorkflow } : p))
 
-      const updated = await projectService.getProjectById(project.id)
-      if (updated) setSelectedProject(updated)
+      // 背景同步到 Supabase（不阻塞 UI）
+      projectService.updateProject(project.id, { workflow: newWorkflow }).catch(err => {
+        console.error("Failed to sync subtask:", err)
+      })
     }
   }
 
@@ -847,6 +973,19 @@ export function PlansPage() {
     }))
 
     step.attachments = attachmentsData
+
+    await projectService.updateProject(project.id, { workflow: newWorkflow })
+    await loadData()
+
+    const updated = await projectService.getProjectById(project.id)
+    if (updated) setSelectedProject(updated)
+  }
+
+  // Update step attachments with ImageData directly
+  const handleUpdateStepAttachments = async (project: Project, stepIndex: number, attachments: ImageData[]) => {
+    const newWorkflow = [...project.workflow]
+    const step = newWorkflow[stepIndex]
+    step.attachments = attachments
 
     await projectService.updateProject(project.id, { workflow: newWorkflow })
     await loadData()
@@ -936,15 +1075,11 @@ export function PlansPage() {
     ? projects
         .filter((p) => p.planId === selectedPlan.id)
         .filter((p) => {
-          if (showTrackingList) {
-            // Show completed projects with tracking enabled
-            return p.status === "completed" && p.trackingEnabled
-          }
           if (showArchivedProjects) {
             return p.status === "archived"
           }
-          // Normal view: hide archived and completed+tracking projects
-          return p.status !== "archived" && !(p.status === "completed" && p.trackingEnabled)
+          // Normal view: hide archived projects
+          return p.status !== "archived"
         })
         .filter((p) =>
           p.name.toLowerCase().includes(projectSearch.toLowerCase())
@@ -955,21 +1090,6 @@ export function PlansPage() {
     ? projects.filter((p) => p.planId === selectedPlan.id && p.status === "archived").length
     : 0
 
-  const trackingProjectCount = selectedPlan
-    ? projects.filter((p) => p.planId === selectedPlan.id && p.status === "completed" && p.trackingEnabled).length
-    : 0
-
-  // Projects that need tracking notification (tracking date has passed)
-  const trackingDueProjects = selectedPlan
-    ? projects.filter((p) =>
-        p.planId === selectedPlan.id &&
-        p.status === "completed" &&
-        p.trackingEnabled &&
-        p.nextTrackingDate &&
-        new Date(p.nextTrackingDate) <= new Date() &&
-        !p.trackingNotificationDismissed
-      )
-    : []
 
   if (isLoading) {
     return (
@@ -979,90 +1099,720 @@ export function PlansPage() {
     )
   }
 
-  // Plans Column Component
-  const PlansColumn = () => (
-    <div className="flex flex-col h-full border-r">
-      <div className="p-4 border-b space-y-3">
-        <div className="flex items-center justify-between">
-          <h2 className="text-lg font-semibold flex items-center gap-2">
-            <FolderKanban className="h-5 w-5" />
-            計畫
-          </h2>
-          <Button size="sm" onClick={() => openPlanForm()}>
-            <Plus className="h-4 w-4" />
-          </Button>
-        </div>
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input
-            placeholder="搜尋計畫..."
-            value={planSearch}
-            onChange={(e) => setPlanSearch(e.target.value)}
-            className="pl-9 h-9"
-          />
-        </div>
-      </div>
+  // 定義統一的流程步驟名稱
+  const workflowStepNames = ['審核', '評估表', '評議委員會', '文件寄發及簽核', '結案與追蹤']
 
-      <ScrollArea className="flex-1">
-        <div className="divide-y">
-          {filteredPlans.length === 0 ? (
-            <div className="text-center text-muted-foreground py-8 text-sm">
-              {planSearch ? "無符合的計畫" : "尚無計畫"}
+  // Plans Cards Component (Top Section) - Only shows when no plan is selected
+  const PlansCards = () => {
+    // 取得所有進行中的專案，按步驟分組
+    const activeProjects = projects.filter(p => p.status === 'active')
+    const completedProjects = projects.filter(p => p.status === 'completed')
+
+    // 按當前步驟分組專案
+    const getProjectsByStep = (stepName: string) => {
+      return activeProjects.filter(p => {
+        const currentStepObj = p.workflow[p.currentStep]
+        return currentStepObj?.name?.includes(stepName.replace('及簽核', '').replace('與追蹤', ''))
+      })
+    }
+
+    return (
+      <div className="p-2 md:p-4 flex-1 overflow-x-auto overflow-y-auto min-w-0">
+        {/* Header */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3 md:mb-4">
+          <div className="flex items-center gap-2 md:gap-3">
+            <div className="relative flex-1 sm:flex-none">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="搜尋計畫..."
+                value={planSearch}
+                onChange={(e) => setPlanSearch(e.target.value)}
+                className="pl-9 h-8 md:h-9 w-full sm:w-40 md:w-48 text-sm"
+              />
             </div>
-          ) : (
-            filteredPlans.map((plan) => {
-              const projectCount = projects.filter((p) => p.planId === plan.id && p.status !== "archived").length
-              const isSelected = selectedPlan?.id === plan.id
+            {/* View mode toggle */}
+            <div className="flex items-center border rounded-lg overflow-hidden flex-shrink-0">
+              <Button
+                variant={viewMode === 'card' ? 'default' : 'ghost'}
+                size="sm"
+                className="rounded-none h-8 md:h-9 px-2 md:px-3"
+                onClick={() => setViewMode('card')}
+              >
+                <LayoutGrid className="h-4 w-4" />
+                <span className="hidden sm:inline ml-1">卡片</span>
+              </Button>
+              <Button
+                variant={viewMode === 'flow' ? 'default' : 'ghost'}
+                size="sm"
+                className="rounded-none h-8 md:h-9 px-2 md:px-3"
+                onClick={() => setViewMode('flow')}
+              >
+                <Columns className="h-4 w-4" />
+                <span className="hidden sm:inline ml-1">流程</span>
+              </Button>
+              <Button
+                variant={viewMode === 'tracking' ? 'default' : 'ghost'}
+                size="sm"
+                className="rounded-none h-8 md:h-9 px-2 md:px-3"
+                onClick={() => setViewMode('tracking')}
+              >
+                <CalendarClock className="h-4 w-4" />
+                <span className="hidden sm:inline ml-1">追蹤</span>
+              </Button>
+            </div>
+          </div>
+        </div>
 
-              return (
-                <div
-                  key={plan.id}
-                  className={cn(
-                    "p-4 cursor-pointer hover:bg-muted/50 transition-colors",
-                    isSelected && "bg-muted"
-                  )}
-                  onClick={() => handleSelectPlan(plan)}
-                >
-                  <div className="flex items-start justify-between">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        <span className="font-medium truncate">{plan.name}</span>
-                        <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0 md:hidden" />
+        {/* Card View */}
+        {viewMode === 'card' && (
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
+                {filteredPlans.map((plan) => {
+                  const projectCount = projects.filter((p) => p.planId === plan.id && p.status !== "archived").length
+                  const activeCount = projects.filter((p) => p.planId === plan.id && p.status === "active").length
+
+                  return (
+                    <div
+                      key={plan.id}
+                      className="rounded-lg overflow-hidden cursor-pointer transition-all border bg-card hover:shadow-lg hover:border-primary/50 flex flex-col aspect-[3/4]"
+                      onClick={() => handleSelectPlan(plan)}
+                    >
+                      {/* Cover Image - only 33% height */}
+                      <div className="h-1/3 bg-muted shrink-0">
+                        {plan.coverImage ? (
+                          <img
+                            src={plan.coverImage.thumbnailUrl || plan.coverImage.originalUrl}
+                            alt={plan.name}
+                            className="w-full h-full object-cover"
+                          />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center">
+                            <FolderKanban className="h-8 w-8 text-muted-foreground/30" />
+                          </div>
+                        )}
                       </div>
-                      <div className="flex items-center gap-2 mt-1">
-                        <Badge variant="secondary" className="text-xs">
-                          {plan.type}
-                        </Badge>
-                        <span className="text-xs text-muted-foreground">
-                          {projectCount} 專案
-                        </span>
+                      {/* Content - 67% height */}
+                      <div className="p-3 flex-1 flex flex-col min-h-0">
+                        {/* Title */}
+                        <h3 className="font-semibold text-sm line-clamp-2">{plan.name}</h3>
+                        {/* Badges */}
+                        <div className="flex items-center gap-1.5 mt-2 flex-wrap">
+                          <Badge variant="secondary" className="text-xs px-1.5 py-0">
+                            {plan.type}
+                          </Badge>
+                          {activeCount > 0 && (
+                            <Badge variant="default" className="text-xs px-1.5 py-0">
+                              {activeCount} 進行中
+                            </Badge>
+                          )}
+                        </div>
+                        {/* Description */}
+                        <p className="text-xs text-muted-foreground mt-2 line-clamp-3 flex-1 whitespace-pre-line">
+                          {plan.description || "無描述"}
+                        </p>
+                        {/* Project count */}
+                        <p className="text-xs text-muted-foreground mb-2">
+                          {projectCount} 個專案
+                        </p>
+                        {/* View button */}
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="w-full"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            openPlanView(plan)
+                          }}
+                        >
+                          <Eye className="h-4 w-4 mr-1" />
+                          查看計畫
+                        </Button>
                       </div>
                     </div>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-8 w-8 p-0 shrink-0"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        openPlanView(plan)
-                      }}
-                      title="檢視計畫"
-                    >
-                      <Eye className="h-4 w-4" />
-                    </Button>
+                  )
+                })}
+                {/* 新增計畫卡片 */}
+                <div
+                  className="rounded-lg overflow-hidden cursor-pointer transition-all border-2 border-dashed border-muted-foreground/30 hover:border-primary/50 hover:bg-muted/30 flex flex-col aspect-[3/4] items-center justify-center"
+                  onClick={() => openPlanForm()}
+                >
+                  <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center mb-3">
+                    <Plus className="h-8 w-8 text-muted-foreground" />
+                  </div>
+                  <span className="font-medium text-muted-foreground">新增計畫</span>
+                </div>
+              </div>
+        )}
+
+        {/* Flow View - Kanban style by workflow steps */}
+        {viewMode === 'flow' && (
+          <div className="flex gap-2 md:gap-4 overflow-x-auto pb-4 min-w-0 w-full">
+            {workflowStepNames.map((stepName, stepIdx) => {
+              const stepProjects = getProjectsByStep(stepName)
+              return (
+                <div
+                  key={stepName}
+                  className="flex-shrink-0 w-40 sm:w-56 md:w-72 bg-muted/30 rounded-lg flex flex-col max-h-[calc(100vh-180px)] md:max-h-[calc(100vh-200px)]"
+                >
+                  {/* Column Header */}
+                  <div className="p-2 md:p-3 border-b bg-muted/50 rounded-t-lg">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-1 md:gap-2">
+                        <div className="w-5 h-5 md:w-6 md:h-6 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-[10px] md:text-xs font-bold">
+                          {stepIdx + 1}
+                        </div>
+                        <span className="font-medium text-xs md:text-sm truncate">{stepName}</span>
+                      </div>
+                      <Badge variant="secondary" className="text-[10px] md:text-xs">
+                        {stepProjects.length}
+                      </Badge>
+                    </div>
+                  </div>
+                  {/* Column Content */}
+                  <div className="flex-1 p-1.5 md:p-2 space-y-1.5 md:space-y-2 overflow-y-auto">
+                    {/* Add Project Button - only in 審核 column */}
+                    {stepIdx === 0 && (
+                      <div
+                        className="border-2 border-dashed border-muted-foreground/30 rounded-lg p-2 md:p-3 cursor-pointer hover:border-primary/50 hover:bg-muted/50 transition-all flex items-center justify-center gap-1 md:gap-2 text-muted-foreground"
+                        onClick={() => openProjectForm()}
+                      >
+                        <Plus className="h-3 w-3 md:h-4 md:w-4" />
+                        <span className="text-xs md:text-sm">新增專案</span>
+                      </div>
+                    )}
+                    {stepProjects.length === 0 && stepIdx !== 0 ? (
+                      <div className="text-center text-muted-foreground text-xs py-4">
+                        無專案
+                      </div>
+                    ) : (
+                      stepProjects.map((project) => {
+                        const plan = plans.find(p => p.id === project.planId)
+                        const org = organizations.find(o => o.id === project.organizationId)
+                        return (
+                          <div
+                            key={project.id}
+                            className="bg-card border rounded-lg p-2 md:p-3 cursor-pointer hover:shadow-md hover:border-primary/50 transition-all"
+                            onClick={() => {
+                              setFlowProjectModal(project)
+                              setSelectedProject(project)
+                            }}
+                          >
+                            <div className="font-medium text-xs md:text-sm line-clamp-1">{project.name}</div>
+                            {org && (
+                              <div className="text-[10px] md:text-xs text-muted-foreground mt-0.5 md:mt-1 flex items-center gap-1 line-clamp-1">
+                                <Building2 className="h-2.5 w-2.5 md:h-3 md:w-3 flex-shrink-0" />
+                                <span className="truncate">{org.name}</span>
+                              </div>
+                            )}
+                            {plan && (
+                              <Badge variant="outline" className="text-[10px] md:text-xs mt-1 md:mt-2 hidden sm:inline-flex">
+                                {plan.name}
+                              </Badge>
+                            )}
+                          </div>
+                        )
+                      })
+                    )}
                   </div>
                 </div>
               )
+            })}
+            {/* Completed Column */}
+            <div className="flex-shrink-0 w-40 sm:w-56 md:w-72 bg-green-50 dark:bg-green-950/20 rounded-lg flex flex-col max-h-[calc(100vh-180px)] md:max-h-[calc(100vh-200px)]">
+              <div className="p-2 md:p-3 border-b bg-green-100 dark:bg-green-900/30 rounded-t-lg">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1 md:gap-2">
+                    <div className="w-5 h-5 md:w-6 md:h-6 rounded-full bg-green-600 text-white flex items-center justify-center">
+                      <Check className="h-3 w-3 md:h-4 md:w-4" />
+                    </div>
+                    <span className="font-medium text-xs md:text-sm">已完成</span>
+                  </div>
+                  <Badge variant="secondary" className="text-[10px] md:text-xs bg-green-200 dark:bg-green-800">
+                    {completedProjects.length}
+                  </Badge>
+                </div>
+              </div>
+              <div className="flex-1 p-1.5 md:p-2 space-y-1.5 md:space-y-2 overflow-y-auto">
+                {completedProjects.length === 0 ? (
+                  <div className="text-center text-muted-foreground text-xs py-4">
+                    無專案
+                  </div>
+                ) : (
+                  completedProjects.slice(0, 10).map((project) => {
+                    const plan = plans.find(p => p.id === project.planId)
+                    const org = organizations.find(o => o.id === project.organizationId)
+                    return (
+                      <div
+                        key={project.id}
+                        className="bg-card border border-green-200 dark:border-green-800 rounded-lg p-2 md:p-3 cursor-pointer hover:shadow-md transition-all"
+                        onClick={() => {
+                          setFlowProjectModal(project)
+                          setSelectedProject(project)
+                        }}
+                      >
+                        <div className="font-medium text-xs md:text-sm line-clamp-1">{project.name}</div>
+                        {org && (
+                          <div className="text-[10px] md:text-xs text-muted-foreground mt-0.5 md:mt-1 flex items-center gap-1 line-clamp-1">
+                            <Building2 className="h-2.5 w-2.5 md:h-3 md:w-3 flex-shrink-0" />
+                            <span className="truncate">{org.name}</span>
+                          </div>
+                        )}
+                        {plan && (
+                          <Badge variant="outline" className="text-[10px] md:text-xs mt-1 md:mt-2 border-green-300 hidden sm:inline-flex">
+                            {plan.name}
+                          </Badge>
+                        )}
+                      </div>
+                    )
+                  })
+                )}
+                {completedProjects.length > 10 && (
+                  <div className="text-center text-muted-foreground text-xs py-2">
+                    +{completedProjects.length - 10} 更多
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Tracking View - 左側清單 + 右側行事曆 */}
+        {viewMode === 'tracking' && (
+          (() => {
+            const monthNames = ['一月', '二月', '三月', '四月', '五月', '六月', '七月', '八月', '九月', '十月', '十一月', '十二月']
+            const currentMonthStr = `${trackingMonth.year}-${String(trackingMonth.month + 1).padStart(2, '0')}`
+
+            // 取得當月第一天和最後一天
+            const firstDay = new Date(trackingMonth.year, trackingMonth.month, 1)
+            const lastDay = new Date(trackingMonth.year, trackingMonth.month + 1, 0)
+            const daysInMonth = lastDay.getDate()
+            const startDayOfWeek = firstDay.getDay() // 0 = Sunday
+
+            // 收集當月的事件（按日期和類型分組）
+            const monthEvents: { date: number; type: 'committee' | 'oneTime' | 'periodic'; project: Project }[] = []
+
+            // 收集當月匯款清單
+            const oneTimePayments: { project: Project; amount: number; org: string }[] = []
+            const periodicPayments: { project: Project; amount: number; org: string; frequency: string }[] = []
+
+            // 評議委員會專案清單
+            const committeeProjects: { date: number; project: Project; org: string }[] = []
+
+            activeProjects.forEach(p => {
+              const committeeStep = p.workflow.find(s => s.name.includes("評議委員會"))
+              const org = organizations.find(o => o.id === p.organizationId)
+
+              // 評議委員會日期（從評議委員會步驟的 subTask[0].note 取得）
+              if (committeeStep?.subTasks?.[0]?.note) {
+                const meetingDate = committeeStep.subTasks[0].note
+                if (meetingDate.startsWith(currentMonthStr)) {
+                  const day = parseInt(meetingDate.split('-')[2])
+                  monthEvents.push({ date: day, type: 'committee', project: p })
+                  committeeProjects.push({ date: day, project: p, org: org?.name || '' })
+                }
+              }
+
+              if (!committeeStep?.note) return
+              try {
+                const data = JSON.parse(committeeStep.note)
+
+                if (data.subsidyType === 'oneTime') {
+                  if (data.oneTimeMonth === currentMonthStr) {
+                    const amount = Number(data.oneTimeAmount) || 0
+                    oneTimePayments.push({ project: p, amount, org: org?.name || '' })
+                    monthEvents.push({ date: 1, type: 'oneTime', project: p })
+                  }
+                } else if (data.subsidyType === 'periodic') {
+                  const periodStart = new Date(data.periodStart)
+                  const periodEnd = new Date(data.periodEnd)
+                  const currentDate = new Date(trackingMonth.year, trackingMonth.month, 15)
+
+                  if (currentDate >= periodStart && currentDate <= periodEnd) {
+                    const amount = Number(data.periodicAmount) || 0
+                    periodicPayments.push({
+                      project: p,
+                      amount,
+                      org: org?.name || '',
+                      frequency: data.frequency === 'monthly' ? '每月' : `每${data.periodicMonths}月`
+                    })
+                    monthEvents.push({ date: 1, type: 'periodic', project: p })
+                  }
+                }
+              } catch {}
             })
-          )}
-        </div>
-      </ScrollArea>
-    </div>
-  )
+
+            const totalOneTime = oneTimePayments.reduce((sum, p) => sum + p.amount, 0)
+            const totalPeriodic = periodicPayments.reduce((sum, p) => sum + p.amount, 0)
+
+            // 按日期和類型分組事件
+            const groupedEvents = monthEvents.reduce((acc, event) => {
+              const key = `${event.date}-${event.type}`
+              if (!acc[key]) {
+                acc[key] = { date: event.date, type: event.type, projects: [] }
+              }
+              acc[key].projects.push(event.project)
+              return acc
+            }, {} as Record<string, { date: number; type: 'committee' | 'oneTime' | 'periodic'; projects: Project[] }>)
+
+            return (
+              <div className="flex flex-col md:flex-row gap-4 md:gap-6 min-h-full overflow-y-auto pb-6">
+                {/* 左側：匯款清單（33%） */}
+                <div className="w-full md:flex-[1] md:min-w-[300px] border rounded-lg bg-card md:overflow-hidden flex flex-col">
+                  <div className="p-4 border-b bg-muted/50 flex items-center justify-between">
+                    <h3 className="font-semibold">
+                      {trackingMonth.year} 年 {monthNames[trackingMonth.month]} 匯款
+                    </h3>
+                    <span className="text-lg font-bold text-primary">
+                      NT$ {(totalOneTime + totalPeriodic).toLocaleString()}
+                    </span>
+                  </div>
+                  <div className="flex-1 md:overflow-y-auto p-4 space-y-4">
+                    {/* 評議委員會 */}
+                    {committeeProjects.length > 0 && (
+                      <div>
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-sm font-medium text-purple-600">評議委員會</span>
+                          <Badge variant="outline" className="text-purple-600 border-purple-300">
+                            {committeeProjects.length} 案
+                          </Badge>
+                        </div>
+                        <div className="space-y-2">
+                          {committeeProjects.map(({ date, project, org }) => (
+                            <div
+                              key={project.id}
+                              className="p-2 rounded border bg-purple-50 dark:bg-purple-950/20 cursor-pointer hover:bg-purple-100 dark:hover:bg-purple-950/30"
+                              onClick={() => {
+                                const plan = plans.find(pl => pl.id === project.planId)
+                                if (plan) {
+                                  handleSelectPlan(plan)
+                                  setTimeout(() => setSelectedProject(project), 100)
+                                }
+                              }}
+                            >
+                              <div className="flex items-center justify-between">
+                                <div className="font-medium text-sm">{project.name}</div>
+                                <Badge variant="secondary" className="text-xs">{date} 日</Badge>
+                              </div>
+                              <div className="text-xs text-muted-foreground">{org}</div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* 一次性補助 */}
+                    <div>
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-sm font-medium text-orange-600">一次性補助</span>
+                        <Badge variant="outline" className="text-orange-600 border-orange-300">
+                          {oneTimePayments.length} 筆 · NT$ {totalOneTime.toLocaleString()}
+                        </Badge>
+                      </div>
+                      {oneTimePayments.length === 0 ? (
+                        <p className="text-xs text-muted-foreground">本月無一次性匯款</p>
+                      ) : (
+                        <div className="space-y-2">
+                          {oneTimePayments.map(({ project, amount, org }) => (
+                            <div
+                              key={project.id}
+                              className="p-2 rounded border bg-orange-50 dark:bg-orange-950/20 cursor-pointer hover:bg-orange-100 dark:hover:bg-orange-950/30"
+                              onClick={() => {
+                                const plan = plans.find(pl => pl.id === project.planId)
+                                if (plan) {
+                                  handleSelectPlan(plan)
+                                  setTimeout(() => setSelectedProject(project), 100)
+                                }
+                              }}
+                            >
+                              <div className="flex items-center justify-between">
+                                <div className="font-medium text-sm">{project.name}</div>
+                                <span className="text-sm font-semibold text-orange-600">
+                                  NT$ {amount.toLocaleString()}
+                                </span>
+                              </div>
+                              <div className="text-xs text-muted-foreground">{org}</div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* 期間性補助 */}
+                    <div>
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-sm font-medium text-blue-600">期間性補助</span>
+                        <Badge variant="outline" className="text-blue-600 border-blue-300">
+                          {periodicPayments.length} 筆 · NT$ {totalPeriodic.toLocaleString()}
+                        </Badge>
+                      </div>
+                      {periodicPayments.length === 0 ? (
+                        <p className="text-xs text-muted-foreground">本月無期間性匯款</p>
+                      ) : (
+                        <div className="space-y-2">
+                          {periodicPayments.map(({ project, amount, org, frequency }) => (
+                            <div
+                              key={project.id}
+                              className="p-2 rounded border bg-blue-50 dark:bg-blue-950/20 cursor-pointer hover:bg-blue-100 dark:hover:bg-blue-950/30"
+                              onClick={() => {
+                                const plan = plans.find(pl => pl.id === project.planId)
+                                if (plan) {
+                                  handleSelectPlan(plan)
+                                  setTimeout(() => setSelectedProject(project), 100)
+                                }
+                              }}
+                            >
+                              <div className="flex items-center justify-between">
+                                <div className="font-medium text-sm">{project.name}</div>
+                                <span className="text-sm font-semibold text-blue-600">
+                                  NT$ {amount.toLocaleString()}
+                                </span>
+                              </div>
+                              <div className="text-xs text-muted-foreground">{org} · {frequency}</div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* 右側：行事曆（67%） */}
+                <div className="w-full md:flex-[2] md:min-w-[400px] border rounded-lg bg-card md:overflow-hidden flex flex-col">
+                  {/* 月份切換 */}
+                  <div className="p-4 border-b bg-muted/50 flex items-center justify-between">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 w-7 p-0"
+                      onClick={() => {
+                        setTrackingMonth(prev => {
+                          if (prev.month === 0) {
+                            return { year: prev.year - 1, month: 11 }
+                          }
+                          return { ...prev, month: prev.month - 1 }
+                        })
+                      }}
+                    >
+                      <ArrowLeft className="h-4 w-4" />
+                    </Button>
+                    <h3 className="font-semibold text-sm">
+                      {trackingMonth.year} 年 {monthNames[trackingMonth.month]}
+                    </h3>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 w-7 p-0"
+                      onClick={() => {
+                        setTrackingMonth(prev => {
+                          if (prev.month === 11) {
+                            return { year: prev.year + 1, month: 0 }
+                          }
+                          return { ...prev, month: prev.month + 1 }
+                        })
+                      }}
+                    >
+                      <ChevronRight className="h-4 w-4" />
+                    </Button>
+                  </div>
+
+                  {/* 行事曆格子 */}
+                  <div className="flex-1 p-4 md:overflow-y-auto">
+                    {/* 星期標題 */}
+                    <div className="grid grid-cols-7 gap-1 mb-2">
+                      {['日', '一', '二', '三', '四', '五', '六'].map(day => (
+                        <div key={day} className="text-center text-sm font-medium text-muted-foreground py-2">
+                          {day}
+                        </div>
+                      ))}
+                    </div>
+                    {/* 日期格子 */}
+                    <div className="grid grid-cols-7 gap-1">
+                      {/* 前面的空白格子 */}
+                      {Array.from({ length: startDayOfWeek }).map((_, i) => (
+                        <div key={`empty-${i}`} className="aspect-square" />
+                      ))}
+                      {/* 日期格子 */}
+                      {Array.from({ length: daysInMonth }).map((_, i) => {
+                        const day = i + 1
+                        const today = new Date()
+                        const isToday = today.getFullYear() === trackingMonth.year &&
+                                        today.getMonth() === trackingMonth.month &&
+                                        today.getDate() === day
+
+                        // 找出當天的分組事件
+                        const dayGroupedEvents = Object.values(groupedEvents).filter(e => e.date === day)
+                        const hasEvents = dayGroupedEvents.length > 0
+
+                        return (
+                          <div
+                            key={day}
+                            className={cn(
+                              "aspect-square border rounded-lg p-1 text-sm relative min-h-[48px]",
+                              isToday && "border-primary border-2",
+                              hasEvents && "cursor-pointer hover:bg-muted/50"
+                            )}
+                          >
+                            <div className={cn(
+                              "font-medium text-center",
+                              isToday && "text-primary"
+                            )}>
+                              {day}
+                            </div>
+                            {/* 事件標記（按類型合併顯示） */}
+                            <div className="absolute top-7 left-1 right-1 flex flex-wrap gap-1 justify-center">
+                              {dayGroupedEvents.map((group, idx) => (
+                                group.type === 'committee' ? (
+                                  <div
+                                    key={idx}
+                                    className="px-2 py-1 rounded-full bg-purple-500 text-white text-xs font-medium cursor-pointer shadow-sm whitespace-nowrap"
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      setTrackingEventPopup({
+                                        isOpen: true,
+                                        date: day,
+                                        type: group.type,
+                                        title: '評議委員會',
+                                        projects: group.projects
+                                      })
+                                    }}
+                                    title={`評議委員會: ${group.projects.length} 案`}
+                                  >
+                                    評議委員會 {group.projects.length}
+                                  </div>
+                                ) : (
+                                  <div
+                                    key={idx}
+                                    className={cn(
+                                      "w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold cursor-pointer shadow-sm",
+                                      group.type === 'oneTime' && "bg-orange-500 text-white",
+                                      group.type === 'periodic' && "bg-blue-500 text-white"
+                                    )}
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      setTrackingEventPopup({
+                                        isOpen: true,
+                                        date: day,
+                                        type: group.type,
+                                        title: group.type === 'oneTime' ? '一次性匯款' : '期間性匯款',
+                                        projects: group.projects
+                                      })
+                                    }}
+                                    title={`${group.type === 'oneTime' ? '一次性' : '期間性'}: ${group.projects.length} 案`}
+                                  >
+                                    {group.projects.length}
+                                  </div>
+                                )
+                              ))}
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+
+                    {/* 圖例 */}
+                    <div className="mt-4 pt-3 border-t flex items-center gap-6 text-sm text-muted-foreground">
+                      <div className="flex items-center gap-2">
+                        <div className="w-5 h-5 rounded-full bg-purple-500" />
+                        <span>評議委員會</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <div className="w-5 h-5 rounded-full bg-orange-500" />
+                        <span>一次性匯款</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <div className="w-5 h-5 rounded-full bg-blue-500" />
+                        <span>期間性匯款</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 事件彈窗 */}
+                {trackingEventPopup?.isOpen && (
+                  <div
+                    className="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
+                    onClick={() => setTrackingEventPopup(null)}
+                  >
+                    <div
+                      className="bg-card border rounded-lg shadow-xl w-96 max-h-[80vh] overflow-hidden"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <div className={cn(
+                        "p-4 border-b",
+                        trackingEventPopup.type === 'committee' && "bg-purple-100 dark:bg-purple-950/30",
+                        trackingEventPopup.type === 'oneTime' && "bg-orange-100 dark:bg-orange-950/30",
+                        trackingEventPopup.type === 'periodic' && "bg-blue-100 dark:bg-blue-950/30"
+                      )}>
+                        <div className="flex items-center justify-between">
+                          <h3 className="font-semibold">
+                            {trackingMonth.month + 1}/{trackingEventPopup.date} - {trackingEventPopup.title}
+                          </h3>
+                          <Badge variant="secondary">{trackingEventPopup.projects.length} 案</Badge>
+                        </div>
+                      </div>
+                      <div className="p-4 space-y-2 max-h-[60vh] overflow-y-auto">
+                        {trackingEventPopup.projects.map(project => {
+                          const org = organizations.find(o => o.id === project.organizationId)
+                          const plan = plans.find(pl => pl.id === project.planId)
+                          return (
+                            <div
+                              key={project.id}
+                              className="p-3 border rounded-lg cursor-pointer hover:bg-muted/50 transition-colors"
+                              onClick={() => {
+                                setTrackingEventPopup(null)
+                                if (plan) {
+                                  handleSelectPlan(plan)
+                                  setTimeout(() => setSelectedProject(project), 100)
+                                }
+                              }}
+                            >
+                              <div className="font-medium">{project.name}</div>
+                              {org && <div className="text-sm text-muted-foreground">{org.name}</div>}
+                              {plan && <Badge variant="outline" className="text-xs mt-1">{plan.name}</Badge>}
+                            </div>
+                          )
+                        })}
+                      </div>
+                      <div className="p-3 border-t bg-muted/30">
+                        <Button
+                          variant="outline"
+                          className="w-full"
+                          onClick={() => setTrackingEventPopup(null)}
+                        >
+                          關閉
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )
+          })()
+        )}
+
+        {/* Flow View Project Modal */}
+        {viewMode === 'flow' && flowProjectModal && selectedProject && (
+          <div
+            className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-2 md:p-4"
+            onClick={() => {
+              setFlowProjectModal(null)
+              setSelectedProject(null)
+            }}
+          >
+            <div
+              className="bg-card border rounded-lg shadow-xl w-full h-full md:w-[90vw] md:max-w-6xl md:h-[85vh] overflow-hidden"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <ProjectDetailColumn />
+            </div>
+          </div>
+        )}
+      </div>
+    )
+  }
 
   // Projects Column Component
   const ProjectsColumn = () => (
-    <div className="flex flex-col h-full border-r">
+    <div className="flex flex-col h-full">
       <div className="p-4 border-b space-y-3">
         <div className="flex items-center gap-2">
           <Button
@@ -1079,40 +1829,22 @@ export function PlansPage() {
           <div className="flex items-center justify-between flex-1">
             <h2 className="text-lg font-semibold flex items-center gap-2">
               <FileText className="h-5 w-5" />
-              {showTrackingList ? "追蹤清單" : showArchivedProjects ? "封存專案" : "專案"}
-              {selectedPlan && (
-                <span className="text-muted-foreground font-normal">- {selectedPlan.name}</span>
-              )}
+              {/* Mobile: show plan name, Desktop: show 專案 */}
+              <span className="md:hidden">
+                {showArchivedProjects ? "封存專案" : selectedPlan?.name || "專案"}
+              </span>
+              <span className="hidden md:inline">
+                {showArchivedProjects ? "封存專案" : "專案"}
+              </span>
             </h2>
             {selectedPlan && (
               <div className="flex items-center gap-1">
-                {/* Tracking list button */}
-                <Button
-                  variant={showTrackingList ? "secondary" : "ghost"}
-                  size="sm"
-                  onClick={() => {
-                    setShowTrackingList(!showTrackingList)
-                    if (!showTrackingList) setShowArchivedProjects(false)
-                  }}
-                  title={showTrackingList ? "返回專案列表" : "查看追蹤清單"}
-                  className="relative"
-                >
-                  <CalendarClock className="h-4 w-4" />
-                  {trackingProjectCount > 0 && !showTrackingList && (
-                    <span className="ml-1 text-xs">{trackingProjectCount}</span>
-                  )}
-                  {/* Notification dot for due tracking */}
-                  {trackingDueProjects.length > 0 && !showTrackingList && (
-                    <span className="absolute -top-1 -right-1 w-2 h-2 bg-destructive rounded-full animate-pulse" />
-                  )}
-                </Button>
                 {/* Archived button */}
                 <Button
                   variant={showArchivedProjects ? "secondary" : "ghost"}
                   size="sm"
                   onClick={() => {
                     setShowArchivedProjects(!showArchivedProjects)
-                    if (!showArchivedProjects) setShowTrackingList(false)
                   }}
                   title={showArchivedProjects ? "返回專案列表" : "查看封存專案"}
                 >
@@ -1121,7 +1853,7 @@ export function PlansPage() {
                     <span className="ml-1 text-xs">{archivedProjectCount}</span>
                   )}
                 </Button>
-                {!showArchivedProjects && !showTrackingList && (
+                {!showArchivedProjects && (
                   <Button size="sm" onClick={() => openProjectForm()}>
                     <Plus className="h-4 w-4" />
                   </Button>
@@ -1154,8 +1886,6 @@ export function PlansPage() {
           <div className="text-center text-muted-foreground py-8 text-sm">
             {projectSearch
               ? "無符合的專案"
-              : showTrackingList
-              ? "此計畫下無追蹤中的專案"
               : showArchivedProjects
               ? "此計畫下無封存專案"
               : "此計畫下尚無專案"}
@@ -1183,30 +1913,29 @@ export function PlansPage() {
                 >
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex-1 min-w-0">
-                      {/* Desktop: name + type + description on same line */}
+                      {/* Desktop: name + source type badge */}
                       <div className="hidden md:flex items-center gap-2 flex-wrap">
                         <span className="font-medium truncate">{project.name}</span>
-                        <Badge variant="outline" className="text-xs shrink-0">
-                          {project.projectType}
-                        </Badge>
+                        {project.description && (
+                          <Badge variant="secondary" className="text-xs shrink-0">
+                            {project.description}
+                          </Badge>
+                        )}
                         {project.status === "not_established" && (
                           <Badge variant="destructive" className="text-xs shrink-0">
                             不成立
                           </Badge>
                         )}
-                        {project.description && (
-                          <span className="text-xs text-muted-foreground truncate">
-                            {project.description}
-                          </span>
-                        )}
                       </div>
-                      {/* Mobile: name + type, description on next line */}
+                      {/* Mobile: name + source type badge */}
                       <div className="md:hidden">
                         <div className="flex items-center gap-2">
                           <span className="font-medium truncate">{project.name}</span>
-                          <Badge variant="outline" className="text-xs shrink-0">
-                            {project.projectType}
-                          </Badge>
+                          {project.description && (
+                            <Badge variant="secondary" className="text-xs shrink-0">
+                              {project.description}
+                            </Badge>
+                          )}
                           {project.status === "not_established" && (
                             <Badge variant="destructive" className="text-xs shrink-0">
                               不成立
@@ -1214,11 +1943,6 @@ export function PlansPage() {
                           )}
                           <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
                         </div>
-                        {project.description && (
-                          <p className="text-xs text-muted-foreground mt-1 line-clamp-2">
-                            {project.description}
-                          </p>
-                        )}
                       </div>
                       <div className="flex flex-wrap items-center gap-2 mt-1">
                         {orgName && (
@@ -1273,50 +1997,6 @@ export function PlansPage() {
                           </Button>
                         </div>
                       )}
-                      {/* Tracking project info */}
-                      {showTrackingList && project.trackingEnabled && (
-                        <div className="mt-2 space-y-2">
-                          {/* Tracking due notification */}
-                          {project.nextTrackingDate && new Date(project.nextTrackingDate) <= new Date() && !project.trackingNotificationDismissed && (
-                            <div className="flex items-center gap-2 p-2 bg-destructive/10 rounded text-xs">
-                              <Bell className="h-3 w-3 text-destructive animate-pulse" />
-                              <span className="text-destructive font-medium">追蹤時間已到</span>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="h-5 text-xs ml-auto"
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  handleDismissTrackingNotification(project)
-                                }}
-                              >
-                                關閉通知
-                              </Button>
-                            </div>
-                          )}
-                          <div className="flex items-center justify-between">
-                            <div className="text-xs text-muted-foreground">
-                              <span>追蹤週期：每 {project.trackingIntervalDays} 天</span>
-                              {project.nextTrackingDate && (
-                                <span className="ml-2">
-                                  下次追蹤：{new Date(project.nextTrackingDate).toLocaleDateString("zh-TW")}
-                                </span>
-                              )}
-                            </div>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="h-6 text-xs"
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                handleCloseTracking(project)
-                              }}
-                            >
-                              關閉追蹤
-                            </Button>
-                          </div>
-                        </div>
-                      )}
                     </div>
                   </div>
                 </div>
@@ -1351,8 +2031,14 @@ export function PlansPage() {
               variant="ghost"
               size="sm"
               onClick={() => {
-                setSelectedProject(null)
-                setMobileView("projects")
+                if (viewMode === 'flow') {
+                  // In flow mode, close the modal and stay in flow view
+                  setFlowProjectModal(null)
+                  setSelectedProject(null)
+                } else {
+                  setSelectedProject(null)
+                  setMobileView("projects")
+                }
               }}
             >
               <ArrowLeft className="h-4 w-4 mr-1" />
@@ -1382,10 +2068,9 @@ export function PlansPage() {
                     ? "不成立"
                     : "已封存"}
                 </Badge>
-                <Badge variant="outline">{selectedProject.projectType}</Badge>
-                <span className="text-sm text-muted-foreground">
-                  ${selectedProject.budgetAmount.toLocaleString()}
-                </span>
+                {selectedProject.description && (
+                  <Badge variant="outline">{selectedProject.description}</Badge>
+                )}
                 {selectedProject.organizationId && (
                   <span className="text-sm text-muted-foreground flex items-center gap-1">
                     <Building2 className="h-3 w-3" />
@@ -1439,7 +2124,12 @@ export function PlansPage() {
           <div className="p-4 space-y-6">
             {/* Workflow Progress */}
             <div className="w-full">
-              <h3 className="font-medium mb-3">流程進度</h3>
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="font-medium">流程進度</h3>
+                <span className="text-xs text-muted-foreground">
+                  建立於 {format(new Date(selectedProject.createdAt), "yyyy/MM/dd HH:mm")}
+                </span>
+              </div>
               {/* 橫向滾動容器 */}
               <div
                 className="overflow-x-auto pb-2 -mx-4 px-4"
@@ -1480,6 +2170,10 @@ export function PlansPage() {
                             : "不限"
                         return { label: "執行", role: executor, verifierLabel: "驗收", verifierRole: verifier }
                       } else if (step.type === "status") {
+                        // 結案步驟顯示執行/驗收：不需
+                        if (step.name.includes("結案")) {
+                          return { label: "執行", role: "不需", verifierLabel: "驗收", verifierRole: "不需" }
+                        }
                         return { label: "負責", role: "不限" }
                       }
                       return null
@@ -1548,12 +2242,12 @@ export function PlansPage() {
                       return isExecutor()
                     }
 
-                    const showApprovalButtons = canUserApprove() && selectedProject.status === "active"
+                    // 審核步驟改用下方表單，不在流程圖上顯示按鈕
+                    const showApprovalButtons = canUserApprove() && selectedProject.status === "active" && step.type !== "establishment"
                     const showExecuteButton = canUserExecute() && selectedProject.status === "active"
 
                     // Determine if node should be interactive
-                    const hasRejectOption = step.type === "establishment" ||
-                      (step.type === "approval" && hasPendingExecution)
+                    const hasRejectOption = (step.type === "approval" && hasPendingExecution)
                     const canReject = showApprovalButtons && hasRejectOption
 
                     return (
@@ -1587,13 +2281,7 @@ export function PlansPage() {
                                     : "bg-muted text-muted-foreground"
                                 )}
                               >
-                                {step.status === "approved" ? (
-                                  <CheckCircle className={isCurrentStep ? "h-6 w-6" : "h-4 w-4"} />
-                                ) : step.status === "rejected" || step.status === "not_established" ? (
-                                  <XCircle className={isCurrentStep ? "h-6 w-6" : "h-4 w-4"} />
-                                ) : (
-                                  index + 1
-                                )}
+                                {index + 1}
                               </div>
                             )}
 
@@ -1799,17 +2487,18 @@ export function PlansPage() {
                       const originalIndex = selectedProject.workflow.indexOf(step)
                       const isRejected = step.status === "rejected" || step.status === "not_established"
                       const hasSubTasks = step.subTasks && step.subTasks.length > 0
-                      const canUpload = step.requireAttachment && step.type !== "approval" && (step.status === "in_progress" || step.status === "pending")
+                      // 允許 establishment 類型的步驟上傳（包括已完成的，因為可以補傳）
+                      const canUpload = step.type === "establishment" || (step.requireAttachment && step.type !== "approval" && (step.status === "in_progress" || step.status === "pending"))
                       // Get executions for this step
                       const currentStepExecutions = stepExecutions.filter(e => e.stepId === step.id)
                       const pendingExecution = currentStepExecutions.find(e => e.verificationStatus === "pending")
 
                       // Check if user can edit this step content (sub-tasks, notes)
-                      // For approved steps: only super_admin or originally assigned users
-                      const canEditStep = () => {
+                      // For approved steps: only super_admin or originally assigned users, AND must be in edit mode
+                      const hasEditPermission = () => {
                         if (!user) return false
                         if (user.role === "super_admin") return true
-                        if (step.status === "approved" || step.status === "rejected" || step.status === "not_established") {
+                        if (isCompletedStep) {
                           // Only assigned users can edit completed steps
                           if (step.assigneeUserIds?.includes(user.id)) return true
                           if (step.verifierUserIds?.includes(user.id)) return true
@@ -1817,6 +2506,15 @@ export function PlansPage() {
                           return false
                         }
                         return true // Non-completed steps can be edited by anyone
+                      }
+                      // Actually allow editing only if has permission AND (not completed OR in edit mode)
+                      const canEditStep = () => {
+                        if (!hasEditPermission()) return false
+                        if (isCompletedStep) {
+                          // Completed steps need to be in edit mode
+                          return editingStepId === step.id
+                        }
+                        return true
                       }
 
                       // Check if this is current approval step and user can execute
@@ -1829,12 +2527,20 @@ export function PlansPage() {
 
                       const hasContent = (step.attachments && step.attachments.length > 0) || step.note || hasSubTasks || canUpload || currentStepExecutions.length > 0 || userCanExecute
 
+                      // Check if this is a completed step (approved/rejected)
+                      const isCompletedStep = step.status === "approved" || step.status === "rejected" || step.status === "not_established"
+                      // Next step is also completed?
+                      const nextStep = filteredSteps[idx + 1]
+                      const nextIsCompleted = nextStep && (nextStep.status === "approved" || nextStep.status === "rejected" || nextStep.status === "not_established")
+                      // Show border only if not both completed
+                      const showBorder = idx !== filteredSteps.length - 1 && !(isCompletedStep && nextIsCompleted)
+
                       return (
                         <div
                           key={step.id}
                           className={cn(
-                            "p-4 overflow-hidden",
-                            idx !== filteredSteps.length - 1 && "border-b"
+                            "p-6 overflow-hidden",
+                            showBorder && "border-b"
                           )}
                         >
                           {/* Step Header */}
@@ -1844,6 +2550,41 @@ export function PlansPage() {
                                 {originalIndex + 1}.
                               </span>
                               <span className="text-sm font-medium text-muted-foreground">{step.name}</span>
+                              {step.approvedAt && (
+                                <span className="text-xs text-muted-foreground">
+                                  {format(new Date(step.approvedAt), "yyyy/MM/dd")}
+                                </span>
+                              )}
+                              {/* Edit button for completed steps - right after step name */}
+                              {isCompletedStep && hasEditPermission() && (
+                                editingStepId === step.id ? (
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-6 w-6"
+                                    onClick={() => {
+                                      const scrollY = window.scrollY
+                                      setEditingStepId(null)
+                                      requestAnimationFrame(() => window.scrollTo(0, scrollY))
+                                    }}
+                                  >
+                                    <Check className="h-3.5 w-3.5" />
+                                  </Button>
+                                ) : (
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-6 w-6"
+                                    onClick={() => {
+                                      const scrollY = window.scrollY
+                                      setEditingStepId(step.id)
+                                      requestAnimationFrame(() => window.scrollTo(0, scrollY))
+                                    }}
+                                  >
+                                    <EditIcon className="h-3.5 w-3.5" />
+                                  </Button>
+                                )
+                              )}
                               {/* Only show badge for non-approved steps */}
                               {step.status !== "approved" && (
                                 <Badge
@@ -1868,8 +2609,8 @@ export function PlansPage() {
                               {/* Assignment display - editable for super_admin, read-only for others */}
                               {step.status === "in_progress" && user?.role === "super_admin" && (
                                 <div className="flex items-center gap-2 ml-2 flex-wrap">
-                                  {/* Executor Assignment for approval steps */}
-                                  {step.type === "approval" && (
+                                  {/* Executor Assignment for approval steps (not evaluation) */}
+                                  {step.type === "approval" && !step.name.includes("評估") && (
                                     <div className="flex items-center gap-1">
                                       <span className="text-xs text-muted-foreground">執行:</span>
                                       {step.assigneeUserIds?.map((uid) => (
@@ -1918,8 +2659,8 @@ export function PlansPage() {
                                       </Select>
                                     </div>
                                   )}
-                                  {/* Verifier Assignment for approval steps */}
-                                  {step.type === "approval" && (
+                                  {/* Verifier Assignment for approval steps (not evaluation) */}
+                                  {step.type === "approval" && !step.name.includes("評估") && (
                                     <div className="flex items-center gap-1">
                                       <span className="text-xs text-muted-foreground">驗收:</span>
                                       {step.verifierUserIds?.map((uid) => (
@@ -2039,116 +2780,425 @@ export function PlansPage() {
                                 </div>
                               )}
                             </div>
-                            {step.approvedAt && (
-                              <span className="text-xs text-muted-foreground">
-                                {format(new Date(step.approvedAt), "yyyy/MM/dd")}
-                              </span>
-                            )}
                           </div>
 
                           {/* Content Area */}
                           {hasContent && (
                             <div className="space-y-3">
-                              {/* Sub-tasks - Checkable list */}
-                              {hasSubTasks && (
-                                <div className="space-y-3">
-                                  {step.subTasks!.map((subTask) => (
-                                    <div
-                                      key={subTask.id}
-                                      className={cn(
-                                        "p-2 rounded-lg transition-colors",
-                                        canEditStep() && "hover:bg-muted/50"
-                                      )}
-                                    >
-                                      <label className={cn(
-                                        "flex items-center gap-3",
-                                        canEditStep() ? "cursor-pointer" : "cursor-default"
-                                      )}>
-                                        <Checkbox
-                                          checked={subTask.completed}
-                                          onCheckedChange={() => toggleSubTaskCompletion(selectedProject, originalIndex, subTask.id)}
-                                          disabled={!canEditStep()}
-                                        />
-                                        <span className={cn(
-                                          "text-sm flex-1",
-                                          subTask.completed && "line-through text-muted-foreground"
-                                        )}>
-                                          {subTask.name}
-                                          {subTask.requireAttachment && (
-                                            <Paperclip className="inline-block h-3 w-3 ml-1 text-muted-foreground" />
+                              {/* 評估表：始終顯示附件、預期金額和評議委員會日期 */}
+                              {step.name.includes("評估") && (
+                                <div className="space-y-4" id={`eval-form-${step.id}`}>
+                                    {/* 評估表附件 - 水平滾動 */}
+                                    {((step.attachments && step.attachments.length > 0) || canEditStep()) && (
+                                      <div
+                                        className="overflow-x-auto -mx-4 px-4 snap-x snap-mandatory md:snap-none"
+                                        style={{ WebkitOverflowScrolling: 'touch' }}
+                                      >
+                                        <div className="flex gap-4 items-start" style={{ width: 'max-content' }}>
+                                          {step.attachments?.map((attachment) => (
+                                            <div key={attachment.id} className="flex-shrink-0 snap-center w-[90vw] md:w-auto flex items-center justify-center">
+                                              {attachment.mimeType === "application/pdf" ? (
+                                                <PDFPageViewer
+                                                  url={attachment.originalUrl}
+                                                  pageHeight="60vh"
+                                                />
+                                              ) : (
+                                                <button
+                                                  type="button"
+                                                  onClick={() => setPreviewFile({
+                                                    url: attachment.originalUrl,
+                                                    type: attachment.mimeType,
+                                                    name: attachment.fileName
+                                                  })}
+                                                  className="group relative hover:opacity-90 transition-opacity"
+                                                >
+                                                  <img
+                                                    src={attachment.thumbnailUrl || attachment.originalUrl}
+                                                    alt={attachment.fileName}
+                                                    className="h-[60vh] w-auto max-w-[90vw] md:max-w-none object-contain rounded"
+                                                  />
+                                                  <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center rounded">
+                                                    <Eye className="h-8 w-8 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
+                                                  </div>
+                                                </button>
+                                              )}
+                                            </div>
+                                          ))}
+                                          {/* 上傳按鈕 - 編輯模式 */}
+                                          {canEditStep() && (
+                                            <div className="flex-shrink-0 snap-center h-[60vh] w-[90vw] md:w-[180px] flex items-center justify-center">
+                                              <DropZone
+                                                accept="image/*,application/pdf"
+                                                multiple
+                                                className="h-full w-full md:w-[180px]"
+                                                onFilesSelected={async (files) => {
+                                                  const scrollY = window.scrollY
+                                                  const validFiles = files.filter(file => {
+                                                    const validation = validateFile(file, 'receipt')
+                                                    return validation.valid
+                                                  })
+                                                  if (validFiles.length === 0) return
+                                                  try {
+                                                    const results = await imageService.uploadMultiple(validFiles, 'receipt')
+                                                    const existingAttachments = (step.attachments || []).map(att => ({
+                                                      id: att.id,
+                                                      originalUrl: att.originalUrl,
+                                                      thumbnailUrl: att.thumbnailUrl,
+                                                      fileName: att.fileName,
+                                                      fileSize: att.fileSize,
+                                                      mimeType: att.mimeType,
+                                                      order: att.order,
+                                                    }))
+                                                    const startOrder = existingAttachments.length
+                                                    const newAttachments = results.map((img, idx) => ({
+                                                      ...img,
+                                                      order: startOrder + idx,
+                                                    }))
+                                                    updateStepAttachments(selectedProject, originalIndex, [...existingAttachments, ...newAttachments])
+                                                    requestAnimationFrame(() => window.scrollTo(0, scrollY))
+                                                  } catch (err) {
+                                                    console.error('Upload failed:', err)
+                                                  }
+                                                }}
+                                              />
+                                            </div>
                                           )}
-                                        </span>
-                                        {subTask.completed && subTask.completedAt && (
-                                          <span className="text-xs text-muted-foreground">
-                                            {format(new Date(subTask.completedAt), "MM/dd")}
-                                          </span>
-                                        )}
-                                      </label>
-                                      {canEditStep() ? (
-                                        <div className="ml-8 mt-1">
+                                        </div>
+                                      </div>
+                                    )}
+
+                                    {/* 預期金額 & 評議委員會日期 */}
+                                    <div className="grid grid-cols-2 gap-4">
+                                      <div className="space-y-2">
+                                        <Label>預期金額</Label>
+                                        {canEditStep() ? (
                                           <Input
-                                            placeholder="說明..."
-                                            defaultValue={subTask.note || ""}
-                                            className="text-xs h-7"
-                                            onBlur={(e) => {
-                                              const newNote = e.target.value
-                                              if (newNote !== (subTask.note || "")) {
-                                                updateSubTaskNote(selectedProject, originalIndex, subTask.id, newNote)
+                                            type="text"
+                                            inputMode="numeric"
+                                            placeholder="輸入預期補助金額..."
+                                            defaultValue={step.note || ""}
+                                            data-budget-input={step.id}
+                                          />
+                                        ) : step.note ? (
+                                          <div className="text-sm font-medium">{step.note}</div>
+                                        ) : <div className="text-sm text-muted-foreground">-</div>}
+                                      </div>
+                                      <div className="space-y-2">
+                                        <Label>評議委員會日期</Label>
+                                        {canEditStep() ? (
+                                          <Input
+                                            type="date"
+                                            id={`committee-date-inline-${step.id}`}
+                                            defaultValue={(() => {
+                                              // Get the date from next step (評議委員會)
+                                              const nextStep = selectedProject.workflow[originalIndex + 1]
+                                              return nextStep?.subTasks?.[0]?.note || ""
+                                            })()}
+                                            onChange={async (e) => {
+                                              // Update the 評議委員會 step's subTask note with the date
+                                              const nextStepIndex = originalIndex + 1
+                                              if (nextStepIndex < selectedProject.workflow.length) {
+                                                const newWorkflow = [...selectedProject.workflow]
+                                                const nextStep = newWorkflow[nextStepIndex]
+                                                if (nextStep.subTasks && nextStep.subTasks.length > 0) {
+                                                  nextStep.subTasks[0].note = e.target.value
+                                                  await projectService.updateProject(selectedProject.id, { workflow: newWorkflow })
+                                                  const updated = await projectService.getProjectById(selectedProject.id)
+                                                  if (updated) setSelectedProject(updated)
+                                                }
                                               }
                                             }}
                                           />
-                                        </div>
-                                      ) : subTask.note ? (
-                                        <div className="ml-8 mt-1 text-xs text-muted-foreground">
-                                          {subTask.note}
-                                        </div>
-                                      ) : null}
+                                        ) : (
+                                          <div className="text-sm font-medium">
+                                            {(() => {
+                                              const nextStep = selectedProject.workflow[originalIndex + 1]
+                                              return nextStep?.subTasks?.[0]?.note || "-"
+                                            })()}
+                                          </div>
+                                        )}
+                                      </div>
                                     </div>
-                                  ))}
-                                </div>
+
+                                    {/* 訪視紀錄 - 只有個人申請才顯示 */}
+                                    {selectedProject.description === "個人" && (
+                                      <div className="space-y-3 p-4 border rounded-lg bg-muted/30">
+                                        <div className="font-medium">訪視紀錄</div>
+                                        <div className="grid grid-cols-2 gap-4">
+                                          <div className="space-y-2">
+                                            <Label>訪視日期</Label>
+                                            {canEditStep() ? (
+                                              <Input
+                                                type="date"
+                                                defaultValue={(() => {
+                                                  try {
+                                                    const visit = JSON.parse(step.attachments?.[0]?.fileName || "{}")
+                                                    return visit.date || ""
+                                                  } catch { return "" }
+                                                })()}
+                                                onChange={(e) => {
+                                                  const currentData = (() => {
+                                                    try {
+                                                      return JSON.parse(step.attachments?.[0]?.fileName || "{}")
+                                                    } catch { return {} }
+                                                  })()
+                                                  currentData.date = e.target.value
+                                                  // Store visit data in a special way
+                                                  const visitData: ImageData = {
+                                                    id: "visit-record",
+                                                    originalUrl: "",
+                                                    thumbnailUrl: "",
+                                                    fileName: JSON.stringify(currentData),
+                                                    fileSize: 0,
+                                                    mimeType: "application/json",
+                                                    order: 0
+                                                  }
+                                                  handleUpdateStepAttachments(selectedProject, originalIndex, [visitData])
+                                                }}
+                                              />
+                                            ) : (
+                                              <div className="text-sm">
+                                                {(() => {
+                                                  try {
+                                                    const visit = JSON.parse(step.attachments?.[0]?.fileName || "{}")
+                                                    return visit.date || "-"
+                                                  } catch { return "-" }
+                                                })()}
+                                              </div>
+                                            )}
+                                          </div>
+                                          <div className="space-y-2">
+                                            <Label>訪視人員</Label>
+                                            {canEditStep() ? (
+                                              <Input
+                                                type="text"
+                                                placeholder="填寫訪視人員..."
+                                                defaultValue={(() => {
+                                                  try {
+                                                    const visit = JSON.parse(step.attachments?.[0]?.fileName || "{}")
+                                                    return visit.visitor || ""
+                                                  } catch { return "" }
+                                                })()}
+                                                onBlur={(e) => {
+                                                  const currentData = (() => {
+                                                    try {
+                                                      return JSON.parse(step.attachments?.[0]?.fileName || "{}")
+                                                    } catch { return {} }
+                                                  })()
+                                                  currentData.visitor = e.target.value
+                                                  const visitData: ImageData = {
+                                                    id: "visit-record",
+                                                    originalUrl: "",
+                                                    thumbnailUrl: "",
+                                                    fileName: JSON.stringify(currentData),
+                                                    fileSize: 0,
+                                                    mimeType: "application/json",
+                                                    order: 0
+                                                  }
+                                                  handleUpdateStepAttachments(selectedProject, originalIndex, [visitData])
+                                                }}
+                                              />
+                                            ) : (
+                                              <div className="text-sm">
+                                                {(() => {
+                                                  try {
+                                                    const visit = JSON.parse(step.attachments?.[0]?.fileName || "{}")
+                                                    return visit.visitor || "-"
+                                                  } catch { return "-" }
+                                                })()}
+                                              </div>
+                                            )}
+                                          </div>
+                                        </div>
+                                        <div className="space-y-2">
+                                          <Label>訪視內容</Label>
+                                          {canEditStep() ? (
+                                            <textarea
+                                              className="flex min-h-20 w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm"
+                                              placeholder="填寫訪視內容..."
+                                              defaultValue={(() => {
+                                                try {
+                                                  const visit = JSON.parse(step.attachments?.[0]?.fileName || "{}")
+                                                  return visit.content || ""
+                                                } catch { return "" }
+                                              })()}
+                                              onBlur={(e) => {
+                                                const currentData = (() => {
+                                                  try {
+                                                    return JSON.parse(step.attachments?.[0]?.fileName || "{}")
+                                                  } catch { return {} }
+                                                })()
+                                                currentData.content = e.target.value
+                                                const visitData: ImageData = {
+                                                  id: "visit-record",
+                                                  originalUrl: "",
+                                                  thumbnailUrl: "",
+                                                  fileName: JSON.stringify(currentData),
+                                                  fileSize: 0,
+                                                  mimeType: "application/json",
+                                                  order: 0
+                                                }
+                                                handleUpdateStepAttachments(selectedProject, originalIndex, [visitData])
+                                              }}
+                                            />
+                                          ) : (
+                                            <div className="text-sm whitespace-pre-wrap">
+                                              {(() => {
+                                                try {
+                                                  const visit = JSON.parse(step.attachments?.[0]?.fileName || "{}")
+                                                  return visit.content || "-"
+                                                } catch { return "-" }
+                                              })()}
+                                            </div>
+                                          )}
+                                        </div>
+                                      </div>
+                                    )}
+                                  </div>
                               )}
 
-                              {/* Text Note - Document Style */}
-                              {step.note && (
+                              {/* Sub-tasks for other steps (not 評估表, 評議委員會, 結案) */}
+                              {hasSubTasks && !step.name.includes("評估") && !step.name.includes("評議委員會") && !step.name.includes("結案") && (
+                                <div className="space-y-3">
+                                    {step.subTasks!.map((subTask) => (
+                                      <div
+                                        key={subTask.id}
+                                        className={cn(
+                                          "p-2 rounded-lg transition-colors",
+                                          canEditStep() && "hover:bg-muted/50"
+                                        )}
+                                      >
+                                        <label className={cn(
+                                          "flex items-center gap-3",
+                                          canEditStep() ? "cursor-pointer" : "cursor-default"
+                                        )}>
+                                          <Checkbox
+                                            checked={subTask.completed}
+                                            onCheckedChange={() => toggleSubTaskCompletion(selectedProject, originalIndex, subTask.id)}
+                                            disabled={!canEditStep()}
+                                          />
+                                          {subTask.completed && subTask.completedAt && (
+                                            <span className="text-xs text-muted-foreground">
+                                              {format(new Date(subTask.completedAt), "MM/dd")}
+                                            </span>
+                                          )}
+                                          <span className="text-sm flex-1">
+                                            {subTask.name}
+                                            {subTask.requireAttachment && (
+                                              <Paperclip className="inline-block h-3 w-3 ml-1 text-muted-foreground" />
+                                            )}
+                                          </span>
+                                        </label>
+                                        {/* 文件寄發及簽核 不顯示說明輸入欄 */}
+                                        {!step.name.includes("文件寄發") && (
+                                          canEditStep() ? (
+                                            <div className="ml-8 mt-1">
+                                              <Input
+                                                placeholder="說明..."
+                                                defaultValue={subTask.note || ""}
+                                                className="text-xs h-7"
+                                                onBlur={(e) => {
+                                                  const newNote = e.target.value
+                                                  if (newNote !== (subTask.note || "")) {
+                                                    updateSubTaskNote(selectedProject, originalIndex, subTask.id, newNote)
+                                                  }
+                                                }}
+                                              />
+                                            </div>
+                                          ) : subTask.note ? (
+                                            <div className="ml-8 mt-1 text-xs text-muted-foreground">
+                                              {subTask.note}
+                                            </div>
+                                          ) : null
+                                        )}
+                                      </div>
+                                    ))}
+                                  </div>
+                              )}
+
+                              {/* Text Note - Document Style (不顯示評議委員會和結案的JSON資料) */}
+                              {step.note && !step.name.includes("評議委員會") && !step.name.includes("結案") && (
                                 <div className="bg-muted/30 rounded-lg p-3 text-sm whitespace-pre-wrap">
                                   {step.note}
                                 </div>
                               )}
 
-                              {/* Attachments - Horizontal Scroll */}
-                              {step.attachments && step.attachments.length > 0 && (
-                                <div className="overflow-x-auto pb-2 -mx-4 px-4" style={{ WebkitOverflowScrolling: 'touch' }}>
-                                  <div className="flex gap-4 w-max">
-                                    {step.attachments.map((attachment) => (
-                                      <button
-                                        key={attachment.id}
-                                        type="button"
-                                        onClick={() => setPreviewFile({
-                                          url: attachment.originalUrl,
-                                          type: attachment.mimeType,
-                                          name: attachment.fileName
-                                        })}
-                                        className="group relative flex-shrink-0 w-60 h-60 rounded-lg overflow-hidden border bg-muted/30 hover:border-primary transition-colors flex items-center justify-center"
-                                      >
+                              {/* Attachments & Upload - Horizontal Scroll with Mobile Snap (不顯示評估表，因為有專用區塊) */}
+                              {!step.name.includes("評估") && ((step.attachments && step.attachments.length > 0) || canUpload) && (
+                                <div
+                                  className="overflow-x-auto pb-2 -mx-4 px-4 snap-x snap-mandatory md:snap-none"
+                                  style={{ WebkitOverflowScrolling: 'touch' }}
+                                >
+                                  <div className="flex gap-4 md:gap-4 items-start" style={{ width: 'max-content' }}>
+                                    {step.attachments?.map((attachment) => (
+                                      <div key={attachment.id} className="flex-shrink-0 snap-center w-[90vw] md:w-auto flex items-center justify-center">
                                         {attachment.mimeType === "application/pdf" ? (
-                                          <div className="w-full h-full flex flex-col items-center justify-center text-muted-foreground p-2">
-                                            <FileText className="h-16 w-16 mb-2 text-red-500" />
-                                            <span className="text-sm truncate max-w-full text-center px-3">
-                                              {attachment.fileName}
-                                            </span>
-                                          </div>
-                                        ) : (
-                                          <img
-                                            src={attachment.thumbnailUrl || attachment.originalUrl}
-                                            alt={attachment.fileName}
-                                            className="max-w-full max-h-full object-contain"
+                                          <PDFPageViewer
+                                            url={attachment.originalUrl}
+                                            pageHeight="70vh"
                                           />
+                                        ) : (
+                                          <button
+                                            type="button"
+                                            onClick={() => setPreviewFile({
+                                              url: attachment.originalUrl,
+                                              type: attachment.mimeType,
+                                              name: attachment.fileName
+                                            })}
+                                            className="group relative hover:opacity-90 transition-opacity"
+                                          >
+                                            <img
+                                              src={attachment.thumbnailUrl || attachment.originalUrl}
+                                              alt={attachment.fileName}
+                                              className="h-[70vh] w-auto max-w-[90vw] md:max-w-none object-contain rounded"
+                                            />
+                                            <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center rounded">
+                                              <Eye className="h-8 w-8 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
+                                            </div>
+                                          </button>
                                         )}
-                                        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center">
-                                          <Eye className="h-8 w-8 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
-                                        </div>
-                                      </button>
+                                      </div>
                                     ))}
+                                    {/* Inline upload button - only in edit mode */}
+                                    {canUpload && (
+                                      <div className="flex-shrink-0 snap-center h-[70vh] w-[90vw] md:w-[180px] flex items-center justify-center">
+                                        <DropZone
+                                          accept="image/*,application/pdf"
+                                          multiple
+                                          className="h-full"
+                                          onFilesSelected={async (files) => {
+                                            const scrollY = window.scrollY
+                                            const validFiles = files.filter(file => {
+                                              const validation = validateFile(file, 'receipt')
+                                              return validation.valid
+                                            })
+                                            if (validFiles.length === 0) return
+
+                                            try {
+                                              const results = await imageService.uploadMultiple(validFiles, 'receipt')
+                                              const existingAttachments = (step.attachments || []).map(att => ({
+                                                id: att.id,
+                                                originalUrl: att.originalUrl,
+                                                thumbnailUrl: att.thumbnailUrl,
+                                                fileName: att.fileName,
+                                                fileSize: att.fileSize,
+                                                mimeType: att.mimeType,
+                                                order: att.order,
+                                              }))
+                                              const startOrder = existingAttachments.length
+                                              const newAttachments = results.map((img, idx) => ({
+                                                ...img,
+                                                order: startOrder + idx,
+                                              }))
+                                              updateStepAttachments(selectedProject, originalIndex, [...existingAttachments, ...newAttachments])
+                                              requestAnimationFrame(() => window.scrollTo(0, scrollY))
+                                            } catch (err) {
+                                              console.error('Upload failed:', err)
+                                            }
+                                          }}
+                                        />
+                                      </div>
+                                    )}
                                   </div>
                                 </div>
                               )}
@@ -2204,7 +3254,11 @@ export function PlansPage() {
                                                 variant="ghost"
                                                 size="sm"
                                                 className="h-6 px-2 text-xs"
-                                                onClick={() => {
+                                                onClick={(e) => {
+                                                  e.preventDefault()
+                                                  e.stopPropagation()
+                                                  // Save scroll position
+                                                  const scrollY = window.scrollY
                                                   setEditingExecutionId(execution.id)
                                                   setEditExecContent(execution.content || "")
                                                   setEditExecAttachments((execution.attachments || []).map(att => ({
@@ -2216,6 +3270,10 @@ export function PlansPage() {
                                                     mimeType: att.mimeType,
                                                     order: att.order || 0,
                                                   })))
+                                                  // Restore scroll position after React render
+                                                  requestAnimationFrame(() => {
+                                                    window.scrollTo(0, scrollY)
+                                                  })
                                                 }}
                                               >
                                                 編輯
@@ -2237,18 +3295,62 @@ export function PlansPage() {
                                             </div>
                                             <div>
                                               <Label className="text-xs text-muted-foreground">附件</Label>
-                                              <div className="mt-1">
-                                                <MultiImageUploader
-                                                  type="receipt"
-                                                  value={editExecAttachments}
-                                                  onChange={setEditExecAttachments}
-                                                />
+                                              <div
+                                                className="mt-1 overflow-x-auto -mx-3 px-3 snap-x snap-mandatory md:snap-none"
+                                                style={{ WebkitOverflowScrolling: 'touch' }}
+                                              >
+                                                <div className="flex gap-3 items-start" style={{ width: 'max-content' }}>
+                                                  {editExecAttachments.map((attachment) => (
+                                                    <div key={attachment.id} className="flex-shrink-0 snap-center w-[80vw] md:w-auto flex items-center justify-center">
+                                                      {attachment.mimeType === "application/pdf" ? (
+                                                        <PDFPageViewer
+                                                          url={attachment.originalUrl}
+                                                          pageHeight="35vh"
+                                                        />
+                                                      ) : (
+                                                        <img
+                                                          src={attachment.thumbnailUrl || attachment.originalUrl}
+                                                          alt={attachment.fileName}
+                                                          className="h-[35vh] w-auto max-w-[80vw] md:max-w-none object-contain rounded"
+                                                        />
+                                                      )}
+                                                    </div>
+                                                  ))}
+                                                  <div className="flex-shrink-0 snap-center h-[35vh] w-[80vw] md:w-[120px] flex items-center justify-center">
+                                                    <DropZone
+                                                      accept="image/*,application/pdf"
+                                                      multiple
+                                                      className="h-full w-full md:w-[120px]"
+                                                      onFilesSelected={async (files) => {
+                                                        const scrollY = window.scrollY
+                                                        const validFiles = files.filter(file => {
+                                                          const validation = validateFile(file, 'receipt')
+                                                          return validation.valid
+                                                        })
+                                                        if (validFiles.length === 0) return
+                                                        try {
+                                                          const results = await imageService.uploadMultiple(validFiles, 'receipt')
+                                                          const startOrder = editExecAttachments.length
+                                                          const newAttachments = results.map((img, idx) => ({
+                                                            ...img,
+                                                            order: startOrder + idx,
+                                                          }))
+                                                          setEditExecAttachments([...editExecAttachments, ...newAttachments])
+                                                          requestAnimationFrame(() => window.scrollTo(0, scrollY))
+                                                        } catch (err) {
+                                                          console.error('Upload failed:', err)
+                                                        }
+                                                      }}
+                                                    />
+                                                  </div>
+                                                </div>
                                               </div>
                                             </div>
                                             <div className="flex gap-2">
                                               <Button
                                                 size="sm"
                                                 onClick={async () => {
+                                                  const scrollY = window.scrollY
                                                   const textarea = document.getElementById(`edit-content-${execution.id}`) as HTMLTextAreaElement
                                                   const content = textarea?.value || ""
                                                   console.log("Saving execution:", execution.id, "Content:", content, "Attachments:", editExecAttachments)
@@ -2262,6 +3364,7 @@ export function PlansPage() {
                                                     console.log("Update result:", result)
                                                     await loadProjectExecutions(selectedProject.id)
                                                     setEditingExecutionId(null)
+                                                    requestAnimationFrame(() => window.scrollTo(0, scrollY))
                                                   } catch (error) {
                                                     console.error("Failed to update execution:", error)
                                                     alert("更新失敗: " + (error instanceof Error ? error.message : String(error)))
@@ -2276,7 +3379,11 @@ export function PlansPage() {
                                               <Button
                                                 size="sm"
                                                 variant="outline"
-                                                onClick={() => setEditingExecutionId(null)}
+                                                onClick={() => {
+                                                  const scrollY = window.scrollY
+                                                  setEditingExecutionId(null)
+                                                  requestAnimationFrame(() => window.scrollTo(0, scrollY))
+                                                }}
                                               >
                                                 取消
                                               </Button>
@@ -2288,34 +3395,38 @@ export function PlansPage() {
                                               <p className="text-sm mb-3 whitespace-pre-wrap">{execution.content}</p>
                                             )}
                                             {execution.attachments && execution.attachments.length > 0 && (
-                                              <div className="flex gap-4 flex-wrap">
-                                                {execution.attachments.map((att, attIdx) => (
-                                                  <button
-                                                    key={attIdx}
-                                                    type="button"
-                                                    onClick={() => setPreviewFile({
-                                                      url: att.originalUrl,
-                                                      type: att.mimeType,
-                                                      name: att.fileName
-                                                    })}
-                                                    className="w-60 h-60 rounded-lg border overflow-hidden hover:border-primary transition-colors bg-muted/30 flex items-center justify-center"
-                                                  >
-                                                    {att.mimeType === "application/pdf" ? (
-                                                      <div className="w-full h-full flex flex-col items-center justify-center bg-muted">
-                                                        <FileText className="h-16 w-16 text-red-500 mb-2" />
-                                                        <span className="text-sm text-muted-foreground truncate max-w-full px-3">
-                                                          {att.fileName}
-                                                        </span>
-                                                      </div>
-                                                    ) : (
-                                                      <img
-                                                        src={att.thumbnailUrl || att.originalUrl}
-                                                        alt=""
-                                                        className="max-w-full max-h-full object-contain"
-                                                      />
-                                                    )}
-                                                  </button>
-                                                ))}
+                                              <div
+                                                className="overflow-x-auto -mx-3 px-3 snap-x snap-mandatory md:snap-none"
+                                                style={{ WebkitOverflowScrolling: 'touch' }}
+                                              >
+                                                <div className="flex gap-3 md:gap-3" style={{ width: 'max-content' }}>
+                                                  {execution.attachments.map((att, attIdx) => (
+                                                    <div key={attIdx} className="flex-shrink-0 snap-center w-[90vw] md:w-auto flex items-center justify-center">
+                                                      {att.mimeType === "application/pdf" ? (
+                                                        <PDFPageViewer
+                                                          url={att.originalUrl}
+                                                          pageHeight="55vh"
+                                                        />
+                                                      ) : (
+                                                        <button
+                                                          type="button"
+                                                          onClick={() => setPreviewFile({
+                                                            url: att.originalUrl,
+                                                            type: att.mimeType,
+                                                            name: att.fileName
+                                                          })}
+                                                          className="hover:opacity-80 transition-opacity"
+                                                        >
+                                                          <img
+                                                            src={att.thumbnailUrl || att.originalUrl}
+                                                            alt=""
+                                                            className="h-[55vh] w-auto max-w-[90vw] md:max-w-none object-contain rounded"
+                                                          />
+                                                        </button>
+                                                      )}
+                                                    </div>
+                                                  ))}
+                                                </div>
                                               </div>
                                             )}
                                           </>
@@ -2326,6 +3437,56 @@ export function PlansPage() {
                                             退回原因：{execution.rejectReason}
                                           </div>
                                         )}
+
+                                        {/* Inline verify buttons for pending executions */}
+                                        {execution.verificationStatus === "pending" && (user?.role === "super_admin" || step.verifierUserIds?.includes(user?.id || "")) && (
+                                          <div className="mt-3 pt-3 border-t flex gap-2">
+                                            <Button
+                                              size="sm"
+                                              variant="outline"
+                                              className="flex-1 border-green-500 text-green-600 hover:bg-green-50"
+                                              onClick={async () => {
+                                                if (!user) return
+                                                setIsProcessing(true)
+                                                try {
+                                                  await workflowService.verifyExecution(execution.id, user.id, true)
+                                                  if (selectedProject) {
+                                                    const currentStep = selectedProject.workflow[selectedProject.currentStep]
+                                                    if (currentStep) {
+                                                      await projectService.advanceWorkflow(selectedProject.id, currentStep.id, user.id, true)
+                                                    }
+                                                    await Promise.all([
+                                                      loadProjectExecutions(selectedProject.id),
+                                                      loadData()
+                                                    ])
+                                                  }
+                                                } catch (error) {
+                                                  console.error("Failed to verify:", error)
+                                                } finally {
+                                                  setIsProcessing(false)
+                                                }
+                                              }}
+                                              disabled={isProcessing}
+                                            >
+                                              <CheckCircle className="h-4 w-4 mr-1" />
+                                              通過
+                                            </Button>
+                                            <Button
+                                              size="sm"
+                                              variant="outline"
+                                              className="flex-1 border-destructive text-destructive hover:bg-destructive/10"
+                                              onClick={() => {
+                                                setSelectedExecution(execution)
+                                                setVerifyForm({ approved: false, rejectReason: "" })
+                                                setIsVerifyDialogOpen(true)
+                                              }}
+                                              disabled={isProcessing}
+                                            >
+                                              <XCircle className="h-4 w-4 mr-1" />
+                                              退回
+                                            </Button>
+                                          </div>
+                                        )}
                                       </div>
                                     )
                                   })}
@@ -2333,88 +3494,944 @@ export function PlansPage() {
                                 </div>
                               )}
 
-                              {/* Upload area for steps that require attachments (non-approval steps) */}
-                              {canUpload && (
+                              {/* 評議委員會步驟 - 顯示已儲存的資料 */}
+                              {step.name.includes("評議委員會") && step.note && step.status === "approved" && (
+                                <div className="space-y-4 border-t pt-3 mt-3">
+                                  {(() => {
+                                    try {
+                                      const data = JSON.parse(step.note)
+                                      return (
+                                        <>
+                                          {/* 會議日期 */}
+                                          {data.meetingDate && (
+                                            <div>
+                                              <Label className="text-muted-foreground text-xs">會議日期</Label>
+                                              <div className="text-sm font-medium">{data.meetingDate}</div>
+                                            </div>
+                                          )}
+
+                                          {/* 補助用途 */}
+                                          {data.purposes && data.purposes.length > 0 && (
+                                            <div>
+                                              <Label className="text-muted-foreground text-xs">補助用途</Label>
+                                              <div className="text-sm font-medium">{data.purposes.join('、')}</div>
+                                            </div>
+                                          )}
+
+                                          {/* 補助類型 */}
+                                          {data.subsidyType && (
+                                            <div>
+                                              <Label className="text-muted-foreground text-xs">補助類型</Label>
+                                              <div className="text-sm font-medium">
+                                                {data.subsidyType === 'oneTime' ? '一次性' : '期間性'}
+                                              </div>
+                                            </div>
+                                          )}
+
+                                          {/* 一次性補助資訊 */}
+                                          {data.subsidyType === 'oneTime' && (
+                                            <>
+                                              {data.oneTimeMonth && (
+                                                <div>
+                                                  <Label className="text-muted-foreground text-xs">補助月份</Label>
+                                                  <div className="text-sm font-medium">{data.oneTimeMonth}</div>
+                                                </div>
+                                              )}
+                                              {data.oneTimeAmount && (
+                                                <div>
+                                                  <Label className="text-muted-foreground text-xs">補助金額</Label>
+                                                  <div className="text-sm font-medium">新台幣 {data.oneTimeAmount} 元整</div>
+                                                </div>
+                                              )}
+                                            </>
+                                          )}
+
+                                          {/* 期間性補助資訊 */}
+                                          {data.subsidyType === 'periodic' && (
+                                            <>
+                                              {/* 補助期間 */}
+                                              {(data.periodStart || data.periodEnd) && (
+                                                <div>
+                                                  <Label className="text-muted-foreground text-xs">補助期間</Label>
+                                                  <div className="text-sm font-medium">{data.periodStart} 至 {data.periodEnd}</div>
+                                                </div>
+                                              )}
+
+                                              {/* 補助頻率 */}
+                                              {data.frequency && (
+                                                <div>
+                                                  <Label className="text-muted-foreground text-xs">補助頻率</Label>
+                                                  <div className="text-sm font-medium">
+                                                    {data.frequency === 'monthly' ? '每月' : `每 ${data.periodicMonths} 月為一期`}
+                                                  </div>
+                                                </div>
+                                              )}
+
+                                              {/* 每期金額 */}
+                                              {data.periodicAmount && (
+                                                <div>
+                                                  <Label className="text-muted-foreground text-xs">
+                                                    {data.frequency === 'monthly' ? '每月金額' : '每期金額'}
+                                                  </Label>
+                                                  <div className="text-sm font-medium">
+                                                    新台幣 {data.periodicAmount} 元整
+                                                  </div>
+                                                </div>
+                                              )}
+                                            </>
+                                          )}
+                                        </>
+                                      )
+                                    } catch {
+                                      return <div className="text-sm text-muted-foreground">{step.note}</div>
+                                    }
+                                  })()}
+                                </div>
+                              )}
+
+                              {/* 結案與追蹤步驟 - 顯示已儲存的資料 */}
+                              {step.name.includes("結案") && step.note && step.status === "approved" && (
+                                <div className="space-y-4 border-t pt-3 mt-3">
+                                  {(() => {
+                                    try {
+                                      const data = JSON.parse(step.note)
+                                      // 從評議委員會步驟讀取補助類型
+                                      const committeeStep = selectedProject?.workflow.find(s => s.name.includes("評議委員會"))
+                                      let subsidyData: { subsidyType?: string } = {}
+                                      try {
+                                        if (committeeStep?.note) {
+                                          subsidyData = JSON.parse(committeeStep.note)
+                                        }
+                                      } catch {}
+
+                                      return (
+                                        <>
+                                          {/* 匯款日期 - 一次性 */}
+                                          {subsidyData.subsidyType === 'oneTime' && data.paymentDate && (
+                                            <div>
+                                              <Label className="text-muted-foreground text-xs">匯款日期</Label>
+                                              <div className="text-sm font-medium">{data.paymentDate}</div>
+                                            </div>
+                                          )}
+
+                                          {/* 追蹤日期 - 期間性 */}
+                                          {subsidyData.subsidyType === 'periodic' && data.trackingDates && data.trackingDates.length > 0 && (
+                                            <div>
+                                              <Label className="text-muted-foreground text-xs">追蹤日期</Label>
+                                              <div className="space-y-1">
+                                                {data.trackingDates.map((td: { date: string; completed: boolean }, idx: number) => (
+                                                  <div key={idx} className="text-sm font-medium flex items-center gap-2">
+                                                    <span>{td.date}</span>
+                                                    {td.completed && <span className="text-green-600">✓</span>}
+                                                  </div>
+                                                ))}
+                                              </div>
+                                            </div>
+                                          )}
+                                        </>
+                                      )
+                                    } catch {
+                                      return <div className="text-sm text-muted-foreground">{step.note}</div>
+                                    }
+                                  })()}
+                                </div>
+                              )}
+
+                              {/* 審核步驟的通過/不通過勾選 */}
+                              {step.type === "establishment" && step.status === "in_progress" && selectedProject.status === "active" && (
                                 <div className="border-t pt-3 mt-3">
-                                  <p className="text-xs text-muted-foreground mb-2 flex items-center gap-1">
-                                    <Paperclip className="h-3 w-3" />
-                                    上傳附件
-                                  </p>
-                                  <MultiImageUploader
-                                    type="receipt"
-                                    value={(step.attachments || []).map(att => ({
-                                      id: att.id,
-                                      originalUrl: att.originalUrl,
-                                      thumbnailUrl: att.thumbnailUrl,
-                                      fileName: att.fileName,
-                                      fileSize: att.fileSize,
-                                      mimeType: att.mimeType,
-                                      order: att.order,
-                                    }))}
-                                    onChange={(attachments) => updateStepAttachments(selectedProject, originalIndex, attachments)}
-                                  />
+                                  <div className="space-y-3">
+                                    <Label>審核結果</Label>
+                                    <div className="flex items-center gap-6">
+                                      <label className="flex items-center gap-2 cursor-pointer">
+                                        <input
+                                          type="radio"
+                                          name={`review-${step.id}`}
+                                          value="approved"
+                                          checked={reviewResult[step.id] === 'approved'}
+                                          className="w-4 h-4 accent-primary"
+                                          onChange={() => setReviewResult(prev => ({ ...prev, [step.id]: 'approved' }))}
+                                        />
+                                        <span className="text-sm">通過</span>
+                                      </label>
+                                      <label className="flex items-center gap-2 cursor-pointer">
+                                        <input
+                                          type="radio"
+                                          name={`review-${step.id}`}
+                                          value="rejected"
+                                          checked={reviewResult[step.id] === 'rejected'}
+                                          className="w-4 h-4 accent-primary"
+                                          onChange={() => setReviewResult(prev => ({ ...prev, [step.id]: 'rejected' }))}
+                                        />
+                                        <span className="text-sm">不通過</span>
+                                      </label>
+                                    </div>
+                                    {reviewResult[step.id] === 'rejected' && (
+                                      <div className="space-y-2">
+                                        <Label className="text-sm">不通過原因</Label>
+                                        <textarea
+                                          id={`review-reason-text-${step.id}`}
+                                          className="flex min-h-20 w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm"
+                                          placeholder="請填寫不通過原因..."
+                                        />
+                                      </div>
+                                    )}
+                                    <Button
+                                      className="w-full disabled:opacity-50 disabled:cursor-not-allowed"
+                                      disabled={!reviewResult[step.id] || isProcessing}
+                                      onClick={async () => {
+                                        if (!selectedProject || !user) return
+                                        const result = reviewResult[step.id]
+
+                                        if (!result) {
+                                          alert("請選擇審核結果")
+                                          return
+                                        }
+
+                                        if (result === "rejected") {
+                                          const reasonText = (document.getElementById(`review-reason-text-${step.id}`) as HTMLTextAreaElement)?.value
+                                          if (!reasonText?.trim()) {
+                                            alert("請填寫不通過原因")
+                                            return
+                                          }
+                                        }
+
+                                          setIsProcessing(true)
+                                          try {
+                                            const newWorkflow = [...selectedProject.workflow]
+                                            const currentStep = newWorkflow[originalIndex]
+                                            const reasonText = (document.getElementById(`review-reason-text-${step.id}`) as HTMLTextAreaElement)?.value
+
+                                            if (result === "approved") {
+                                              // 通過：更新當前步驟狀態，進入下一步
+                                              currentStep.status = "approved"
+                                              currentStep.approvedBy = user.id
+                                              currentStep.approvedAt = new Date().toISOString()
+
+                                              // 啟動下一步
+                                              const nextStepIndex = originalIndex + 1
+                                              if (nextStepIndex < newWorkflow.length) {
+                                                newWorkflow[nextStepIndex].status = "in_progress"
+                                              }
+
+                                              await projectService.updateProject(selectedProject.id, {
+                                                workflow: newWorkflow,
+                                                currentStep: nextStepIndex,
+                                              })
+                                            } else {
+                                              // 不通過：更新步驟狀態，專案設為不成立
+                                              currentStep.status = "not_established"
+                                              currentStep.approvedBy = user.id
+                                              currentStep.approvedAt = new Date().toISOString()
+                                              currentStep.note = reasonText || ""
+
+                                              await projectService.updateProject(selectedProject.id, {
+                                                workflow: newWorkflow,
+                                                status: "not_established",
+                                              })
+                                            }
+
+                                            await loadData()
+                                            const updated = await projectService.getProjectById(selectedProject.id)
+                                            if (updated) setSelectedProject(updated)
+                                          } catch (error) {
+                                            console.error("Failed to submit review:", error)
+                                            alert("送出失敗，請稍後再試")
+                                          } finally {
+                                            setIsProcessing(false)
+                                          }
+                                        }}
+                                      >
+                                        <Send className="h-4 w-4 mr-2" />
+                                        {isProcessing ? "送出中..." : "送出審核結果"}
+                                      </Button>
+                                  </div>
                                 </div>
                               )}
 
                               {/* Execution form for approval steps */}
                               {userCanExecute && selectedProject.status === "active" && (
                                 <div key={`exec-form-${step.id}`} className="border-t pt-3 mt-3">
-                                  <div className="space-y-3">
-                                    <div>
-                                      <Label className="text-xs text-muted-foreground">說明（選填）</Label>
-                                      <textarea
-                                        ref={inlineExecContentRef}
-                                        className="mt-1 flex min-h-16 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                                        defaultValue=""
-                                        placeholder="填寫執行說明..."
-                                      />
-                                    </div>
-                                    <div>
-                                      <Label className="text-xs text-muted-foreground">附件</Label>
-                                      <div className="mt-1">
-                                        <MultiImageUploader
-                                          type="receipt"
-                                          value={inlineExecAttachments}
-                                          onChange={setInlineExecAttachments}
-                                        />
-                                      </div>
-                                    </div>
-                                    <Button
-                                      className="w-full"
-                                      onClick={async () => {
-                                        if (!selectedProject || !user) return
-                                        const currentStep = selectedProject.workflow[selectedProject.currentStep]
-                                        if (!currentStep) return
+                                  <div className="space-y-4">
+                                    {/* 評議委員會步驟的特殊表單 */}
+                                    {step.name.includes("評議委員會") ? (
+                                      <>
+                                        {/* 評議委員會 PDF 附件 - 水平滾動 */}
+                                        <div className="space-y-2">
+                                          <Label>評議委員會文件</Label>
+                                          <div
+                                            className="overflow-x-auto -mx-4 px-4 snap-x snap-mandatory md:snap-none"
+                                            style={{ WebkitOverflowScrolling: 'touch' }}
+                                          >
+                                            <div className="flex gap-4 items-start" style={{ width: 'max-content' }}>
+                                              {committeeAttachments.map((attachment) => (
+                                                <div key={attachment.id} className="flex-shrink-0 snap-center w-[90vw] md:w-auto flex items-center justify-center">
+                                                  {attachment.mimeType === "application/pdf" ? (
+                                                    <PDFPageViewer
+                                                      url={attachment.originalUrl}
+                                                      pageHeight="50vh"
+                                                    />
+                                                  ) : (
+                                                    <img
+                                                      src={attachment.thumbnailUrl || attachment.originalUrl}
+                                                      alt={attachment.fileName}
+                                                      className="h-[50vh] w-auto max-w-[90vw] md:max-w-none object-contain rounded"
+                                                    />
+                                                  )}
+                                                </div>
+                                              ))}
+                                              {/* 上傳按鈕 */}
+                                              <div className="flex-shrink-0 snap-center h-[50vh] w-[90vw] md:w-[180px] flex items-center justify-center">
+                                                <DropZone
+                                                  accept="image/*,application/pdf"
+                                                  multiple
+                                                  className="h-full w-full md:w-[180px]"
+                                                  onFilesSelected={async (files) => {
+                                                    const scrollY = window.scrollY
+                                                    const validFiles = files.filter(file => {
+                                                      const validation = validateFile(file, 'receipt')
+                                                      return validation.valid
+                                                    })
+                                                    if (validFiles.length === 0) return
+                                                    try {
+                                                      const results = await imageService.uploadMultiple(validFiles, 'receipt')
+                                                      const startOrder = committeeAttachments.length
+                                                      const newAttachments = results.map((img, idx) => ({
+                                                        ...img,
+                                                        order: startOrder + idx,
+                                                      }))
+                                                      setCommitteeAttachments([...committeeAttachments, ...newAttachments])
+                                                      requestAnimationFrame(() => window.scrollTo(0, scrollY))
+                                                    } catch (err) {
+                                                      console.error('Upload failed:', err)
+                                                    }
+                                                  }}
+                                                />
+                                              </div>
+                                            </div>
+                                          </div>
+                                        </div>
 
-                                        setIsProcessing(true)
+                                        {/* 補助用途 - 自動帶入專案類型 */}
+                                        <div className="space-y-2">
+                                          <Label>補助用途</Label>
+                                          <div className="flex flex-wrap gap-3">
+                                            {['急難救助', '醫療補助', '教育扶助', '喪葬補助', '生活扶助'].map((purpose) => {
+                                              // 預設勾選專案的補助類型
+                                              const isDefaultChecked = selectedProject?.projectType === purpose
+                                              const isChecked = committeeForm.purposes.length > 0
+                                                ? committeeForm.purposes.includes(purpose)
+                                                : isDefaultChecked
+                                              return (
+                                                <label key={purpose} className="flex items-center gap-2 cursor-pointer">
+                                                  <input
+                                                    type="checkbox"
+                                                    checked={isChecked}
+                                                    onChange={(e) => {
+                                                      if (e.target.checked) {
+                                                        setCommitteeForm(prev => ({ ...prev, purposes: [...prev.purposes, purpose] }))
+                                                      } else {
+                                                        setCommitteeForm(prev => ({ ...prev, purposes: prev.purposes.filter(p => p !== purpose) }))
+                                                      }
+                                                    }}
+                                                    className="w-4 h-4 accent-primary"
+                                                  />
+                                                  <span className="text-sm">{purpose}</span>
+                                                </label>
+                                              )
+                                            })}
+                                          </div>
+                                        </div>
+
+                                        {/* 補助類型選擇 */}
+                                        <div className="space-y-2">
+                                          <Label>補助類型</Label>
+                                          <div className="flex items-center gap-6">
+                                            <label className="flex items-center gap-2 cursor-pointer">
+                                              <input
+                                                type="radio"
+                                                name={`subsidy-type-${step.id}`}
+                                                checked={committeeForm.subsidyType === 'oneTime'}
+                                                onChange={() => setCommitteeForm(prev => ({ ...prev, subsidyType: 'oneTime' }))}
+                                                className="w-4 h-4 accent-primary"
+                                              />
+                                              <span className="text-sm">一次性</span>
+                                            </label>
+                                            <label className="flex items-center gap-2 cursor-pointer">
+                                              <input
+                                                type="radio"
+                                                name={`subsidy-type-${step.id}`}
+                                                checked={committeeForm.subsidyType === 'periodic'}
+                                                onChange={() => setCommitteeForm(prev => ({ ...prev, subsidyType: 'periodic' }))}
+                                                className="w-4 h-4 accent-primary"
+                                              />
+                                              <span className="text-sm">期間性</span>
+                                            </label>
+                                          </div>
+                                        </div>
+
+                                        {/* 一次性：月份和金額 */}
+                                        {committeeForm.subsidyType === 'oneTime' && (
+                                          <div className="space-y-4 p-4 border rounded-lg bg-muted/30">
+                                            <div className="space-y-2">
+                                              <Label>補助月份</Label>
+                                              <Input
+                                                type="month"
+                                                id={`oneTimeMonth-${step.id}`}
+                                                defaultValue={committeeForm.oneTimeMonth}
+                                                className="w-40"
+                                              />
+                                            </div>
+                                            <div className="space-y-2">
+                                              <Label>補助金額</Label>
+                                              <div className="flex items-center gap-2">
+                                                <span className="text-sm text-muted-foreground">新台幣</span>
+                                                <Input
+                                                  type="text"
+                                                  inputMode="numeric"
+                                                  placeholder="金額"
+                                                  id={`oneTimeAmount-${step.id}`}
+                                                  defaultValue={committeeForm.oneTimeAmount}
+                                                  className="w-32"
+                                                />
+                                                <span className="text-sm text-muted-foreground">元整</span>
+                                              </div>
+                                            </div>
+                                          </div>
+                                        )}
+
+                                        {/* 期間性：顯示期間、頻率、每期金額 */}
+                                        {committeeForm.subsidyType === 'periodic' && (
+                                          <div className="space-y-4 p-4 border rounded-lg bg-muted/30">
+                                            {/* 補助期間 */}
+                                            <div className="space-y-2">
+                                              <Label>補助期間</Label>
+                                              <div className="flex items-center gap-2 flex-wrap">
+                                                <Input
+                                                  type="date"
+                                                  id={`periodStart-${step.id}`}
+                                                  defaultValue={committeeForm.periodStart}
+                                                  className="w-40"
+                                                />
+                                                <span className="text-sm text-muted-foreground">至</span>
+                                                <Input
+                                                  type="date"
+                                                  id={`periodEnd-${step.id}`}
+                                                  defaultValue={committeeForm.periodEnd}
+                                                  className="w-40"
+                                                />
+                                              </div>
+                                            </div>
+
+                                            {/* 補助頻率 */}
+                                            <div className="space-y-2">
+                                              <Label>補助頻率</Label>
+                                              <div className="flex items-center gap-4 flex-wrap">
+                                                <label className="flex items-center gap-2 cursor-pointer">
+                                                  <input
+                                                    type="radio"
+                                                    name={`frequency-${step.id}`}
+                                                    id={`frequency-monthly-${step.id}`}
+                                                    defaultChecked={committeeForm.frequency === 'monthly'}
+                                                    className="w-4 h-4 accent-primary"
+                                                  />
+                                                  <span className="text-sm">每月</span>
+                                                </label>
+                                                <label className="flex items-center gap-2 cursor-pointer">
+                                                  <input
+                                                    type="radio"
+                                                    name={`frequency-${step.id}`}
+                                                    id={`frequency-periodic-${step.id}`}
+                                                    defaultChecked={committeeForm.frequency === 'periodic'}
+                                                    className="w-4 h-4 accent-primary"
+                                                  />
+                                                  <span className="text-sm">每</span>
+                                                  <Input
+                                                    type="text"
+                                                    inputMode="numeric"
+                                                    id={`periodicMonths-${step.id}`}
+                                                    defaultValue={committeeForm.periodicMonths}
+                                                    className="w-12 h-8 text-center"
+                                                    placeholder="_"
+                                                  />
+                                                  <span className="text-sm">月為一期</span>
+                                                </label>
+                                              </div>
+                                            </div>
+
+                                            {/* 每期金額 */}
+                                            <div className="space-y-2">
+                                              <Label>每期金額</Label>
+                                              <div className="flex items-center gap-2">
+                                                <span className="text-sm text-muted-foreground">新台幣</span>
+                                                <Input
+                                                  type="text"
+                                                  inputMode="numeric"
+                                                  placeholder="金額"
+                                                  id={`periodicAmount-${step.id}`}
+                                                  defaultValue={committeeForm.periodicAmount}
+                                                  className="w-32"
+                                                />
+                                                <span className="text-sm text-muted-foreground">元整</span>
+                                              </div>
+                                            </div>
+                                          </div>
+                                        )}
+                                      </>
+                                    ) : step.name.includes("結案") ? (
+                                      /* 結案與追蹤步驟的表單 - 只有一次性需要顯示 */
+                                      (() => {
+                                        // 從評議委員會步驟讀取補助類型
+                                        const committeeStep = selectedProject?.workflow.find(s => s.name.includes("評議委員會"))
+                                        let subsidyData: { subsidyType?: string; oneTimeMonth?: string; oneTimeAmount?: string; periodStart?: string; periodEnd?: string; frequency?: string; periodicMonths?: string; periodicAmount?: string } = {}
                                         try {
-                                          await workflowService.submitExecution(
-                                            selectedProject.id,
-                                            currentStep.id,
-                                            user.id,
-                                            {
-                                              content: inlineExecContentRef.current?.value || "",
-                                              attachments: inlineExecAttachments as ImageData[],
-                                            }
+                                          if (committeeStep?.note) {
+                                            subsidyData = JSON.parse(committeeStep.note)
+                                          }
+                                        } catch {}
+                                        const isOneTime = subsidyData.subsidyType === 'oneTime'
+                                        const isPeriodic = subsidyData.subsidyType === 'periodic'
+
+                                        // 期間性不需要顯示表單（直接 100%）
+                                        if (isPeriodic) {
+                                          return (
+                                            <div className="bg-green-50 dark:bg-green-950/20 rounded-lg p-4 text-center">
+                                              <CheckCircle className="h-8 w-8 text-green-600 mx-auto mb-2" />
+                                              <div className="font-medium text-green-800 dark:text-green-200">期間性補助進行中</div>
+                                              <div className="text-sm text-muted-foreground mt-1">
+                                                補助期間：{subsidyData.periodStart} 至 {subsidyData.periodEnd}
+                                              </div>
+                                              <div className="text-xs text-muted-foreground mt-1">
+                                                請使用「專案追蹤」功能管理追蹤進度
+                                              </div>
+                                            </div>
                                           )
-                                          await loadProjectExecutions(selectedProject.id)
-                                          if (inlineExecContentRef.current) inlineExecContentRef.current.value = ""
-                                          setInlineExecAttachments([])
+                                        }
+
+                                        // 一次性：顯示匯款日期 + 附件
+                                        return (
+                                          <>
+                                            {/* 顯示補助摘要 */}
+                                            {isOneTime && (
+                                              <div className="bg-muted/30 rounded-lg p-3 text-sm">
+                                                <div className="font-medium mb-1">補助類型：一次性</div>
+                                                {subsidyData.oneTimeAmount && (
+                                                  <div className="text-muted-foreground">
+                                                    補助金額：新台幣 {Number(subsidyData.oneTimeAmount).toLocaleString()} 元整
+                                                  </div>
+                                                )}
+                                              </div>
+                                            )}
+
+                                            {/* 一次性：匯款日期 */}
+                                            <div className="space-y-2">
+                                              <Label>匯款日期</Label>
+                                              <Input
+                                                type="date"
+                                                id={`paymentDate-${step.id}`}
+                                                defaultValue={closingForm.paymentDate}
+                                                className="w-40"
+                                              />
+                                            </div>
+
+                                            {/* 一次性：附件 - 水平滾動 */}
+                                            <div className="space-y-2">
+                                              <Label>附件</Label>
+                                              <div
+                                                className="overflow-x-auto -mx-4 px-4 snap-x snap-mandatory md:snap-none"
+                                                style={{ WebkitOverflowScrolling: 'touch' }}
+                                              >
+                                                <div className="flex gap-4 items-start" style={{ width: 'max-content' }}>
+                                                  {closingAttachments.map((attachment) => (
+                                                    <div key={attachment.id} className="flex-shrink-0 snap-center w-[90vw] md:w-auto flex items-center justify-center">
+                                                      {attachment.mimeType === "application/pdf" ? (
+                                                        <PDFPageViewer
+                                                          url={attachment.originalUrl}
+                                                          pageHeight="40vh"
+                                                        />
+                                                      ) : (
+                                                        <img
+                                                          src={attachment.thumbnailUrl || attachment.originalUrl}
+                                                          alt={attachment.fileName}
+                                                          className="h-[40vh] w-auto max-w-[90vw] md:max-w-none object-contain rounded"
+                                                        />
+                                                      )}
+                                                    </div>
+                                                  ))}
+                                                  <div className="flex-shrink-0 snap-center h-[40vh] w-[90vw] md:w-[150px] flex items-center justify-center">
+                                                    <DropZone
+                                                      accept="image/*,application/pdf"
+                                                      multiple
+                                                      className="h-full w-full md:w-[150px]"
+                                                      onFilesSelected={async (files) => {
+                                                        const scrollY = window.scrollY
+                                                        const validFiles = files.filter(file => {
+                                                          const validation = validateFile(file, 'receipt')
+                                                          return validation.valid
+                                                        })
+                                                        if (validFiles.length === 0) return
+                                                        try {
+                                                          const results = await imageService.uploadMultiple(validFiles, 'receipt')
+                                                          const startOrder = closingAttachments.length
+                                                          const newAttachments = results.map((img, idx) => ({
+                                                            ...img,
+                                                            order: startOrder + idx,
+                                                          }))
+                                                          setClosingAttachments([...closingAttachments, ...newAttachments])
+                                                          requestAnimationFrame(() => window.scrollTo(0, scrollY))
+                                                        } catch (err) {
+                                                          console.error('Upload failed:', err)
+                                                        }
+                                                      }}
+                                                    />
+                                                  </div>
+                                                </div>
+                                              </div>
+                                            </div>
+                                          </>
+                                        )
+                                      })()
+                                    ) : !step.name.includes("評估") && (
+                                      /* 其他步驟的一般表單 */
+                                      <>
+                                        <div>
+                                          <Label className="text-xs text-muted-foreground">說明（選填）</Label>
+                                          <textarea
+                                            ref={inlineExecContentRef}
+                                            className="mt-1 flex min-h-16 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                                            defaultValue=""
+                                            placeholder="填寫執行說明..."
+                                          />
+                                        </div>
+                                        <div>
+                                          <Label className="text-xs text-muted-foreground">附件</Label>
+                                          <div
+                                            className="mt-1 overflow-x-auto -mx-4 px-4 snap-x snap-mandatory md:snap-none"
+                                            style={{ WebkitOverflowScrolling: 'touch' }}
+                                          >
+                                            <div className="flex gap-4 items-start" style={{ width: 'max-content' }}>
+                                              {inlineExecAttachments.map((attachment) => (
+                                                <div key={attachment.id} className="flex-shrink-0 snap-center w-[90vw] md:w-auto flex items-center justify-center">
+                                                  {attachment.mimeType === "application/pdf" ? (
+                                                    <PDFPageViewer
+                                                      url={attachment.originalUrl}
+                                                      pageHeight="40vh"
+                                                    />
+                                                  ) : (
+                                                    <img
+                                                      src={attachment.thumbnailUrl || attachment.originalUrl}
+                                                      alt={attachment.fileName}
+                                                      className="h-[40vh] w-auto max-w-[90vw] md:max-w-none object-contain rounded"
+                                                    />
+                                                  )}
+                                                </div>
+                                              ))}
+                                              <div className="flex-shrink-0 snap-center h-[40vh] w-[90vw] md:w-[150px] flex items-center justify-center">
+                                                <DropZone
+                                                  accept="image/*,application/pdf"
+                                                  multiple
+                                                  className="h-full w-full md:w-[150px]"
+                                                  onFilesSelected={async (files) => {
+                                                    const scrollY = window.scrollY
+                                                    const validFiles = files.filter(file => {
+                                                      const validation = validateFile(file, 'receipt')
+                                                      return validation.valid
+                                                    })
+                                                    if (validFiles.length === 0) return
+                                                    try {
+                                                      const results = await imageService.uploadMultiple(validFiles, 'receipt')
+                                                      const startOrder = inlineExecAttachments.length
+                                                      const newAttachments = results.map((img, idx) => ({
+                                                        ...img,
+                                                        order: startOrder + idx,
+                                                      }))
+                                                      setInlineExecAttachments([...inlineExecAttachments, ...newAttachments])
+                                                      requestAnimationFrame(() => window.scrollTo(0, scrollY))
+                                                    } catch (err) {
+                                                      console.error('Upload failed:', err)
+                                                    }
+                                                  }}
+                                                />
+                                              </div>
+                                            </div>
+                                          </div>
+                                        </div>
+                                      </>
+                                    )}
+                                    {/* 結案步驟：檢查補助類型決定是否顯示按鈕 */}
+                                    {(() => {
+                                      // 期間性結案不顯示按鈕
+                                      if (step.name.includes("結案")) {
+                                        const committeeStep = selectedProject?.workflow.find(s => s.name.includes("評議委員會"))
+                                        let subsidyData: { subsidyType?: string } = {}
+                                        try {
+                                          if (committeeStep?.note) {
+                                            subsidyData = JSON.parse(committeeStep.note)
+                                          }
+                                        } catch {}
+                                        if (subsidyData.subsidyType === 'periodic') {
+                                          return null // 期間性不顯示按鈕
+                                        }
+                                      }
+                                      return (
+                                        <Button
+                                          id={step.name.includes("評估") ? `eval-submit-${step.id}` : undefined}
+                                          className="w-full disabled:opacity-50 disabled:cursor-not-allowed"
+                                          onClick={async () => {
+                                            if (!selectedProject || !user) return
+                                            const currentStep = selectedProject.workflow[selectedProject.currentStep]
+                                            if (!currentStep) return
+
+                                            setIsProcessing(true)
+                                            try {
+                                              if (step.name.includes("評估")) {
+                                            // 評估表：直接送出，收集預期金額
+                                            const newWorkflow = [...selectedProject.workflow]
+                                            const evalStep = newWorkflow[selectedProject.currentStep]
+
+                                            // 收集預期金額
+                                            const budgetInput = document.querySelector(`input[data-budget-input="${step.id}"]`) as HTMLInputElement
+                                            if (budgetInput && budgetInput.value) {
+                                              evalStep.note = budgetInput.value
+                                            }
+
+                                            evalStep.status = "approved"
+                                            evalStep.approvedAt = new Date().toISOString()
+
+                                            // 啟動下一步
+                                            const nextStepIndex = selectedProject.currentStep + 1
+                                            if (nextStepIndex < newWorkflow.length) {
+                                              newWorkflow[nextStepIndex].status = "in_progress"
+                                            }
+
+                                            await projectService.updateProject(selectedProject.id, {
+                                              workflow: newWorkflow,
+                                              currentStep: nextStepIndex,
+                                            })
+                                          } else if (step.name.includes("評議委員會")) {
+                                            // 評議委員會：儲存會議結果
+                                            const newWorkflow = [...selectedProject.workflow]
+                                            const committeeStep = newWorkflow[selectedProject.currentStep]
+
+                                            // 取得會議日期（從 subTask[0].note，由評估表設定）
+                                            const meetingDate = committeeStep.subTasks?.[0]?.note || ''
+
+                                            // 取得補助用途（優先用表單值，否則用專案類型）
+                                            const purposes = committeeForm.purposes.length > 0
+                                              ? committeeForm.purposes
+                                              : selectedProject.projectType ? [selectedProject.projectType] : []
+
+                                            // 從 DOM 收集表單資料
+                                            const oneTimeMonth = (document.getElementById(`oneTimeMonth-${step.id}`) as HTMLInputElement)?.value || ''
+                                            const oneTimeAmount = (document.getElementById(`oneTimeAmount-${step.id}`) as HTMLInputElement)?.value || ''
+                                            const periodStart = (document.getElementById(`periodStart-${step.id}`) as HTMLInputElement)?.value || ''
+                                            const periodEnd = (document.getElementById(`periodEnd-${step.id}`) as HTMLInputElement)?.value || ''
+                                            const isMonthly = (document.getElementById(`frequency-monthly-${step.id}`) as HTMLInputElement)?.checked
+                                            const frequency = isMonthly ? 'monthly' : 'periodic'
+                                            const periodicMonths = (document.getElementById(`periodicMonths-${step.id}`) as HTMLInputElement)?.value || ''
+                                            const periodicAmount = (document.getElementById(`periodicAmount-${step.id}`) as HTMLInputElement)?.value || ''
+
+                                            // 儲存表單資料到 step.note
+                                            committeeStep.note = JSON.stringify({
+                                              meetingDate,
+                                              purposes,
+                                              subsidyType: committeeForm.subsidyType,
+                                              oneTimeMonth,
+                                              oneTimeAmount,
+                                              periodStart,
+                                              periodEnd,
+                                              frequency: committeeForm.subsidyType === 'periodic' ? frequency : '',
+                                              periodicMonths,
+                                              periodicAmount,
+                                            })
+
+                                            // 儲存附件
+                                            committeeStep.attachments = committeeAttachments.map(att => ({
+                                              id: att.id,
+                                              originalUrl: att.originalUrl,
+                                              thumbnailUrl: att.thumbnailUrl,
+                                              fileName: att.fileName,
+                                              fileSize: att.fileSize,
+                                              mimeType: att.mimeType,
+                                              order: att.order,
+                                            }))
+
+                                            committeeStep.status = "approved"
+                                            committeeStep.approvedAt = new Date().toISOString()
+
+                                            // 啟動下一步
+                                            const nextStepIndex = selectedProject.currentStep + 1
+                                            if (nextStepIndex < newWorkflow.length) {
+                                              newWorkflow[nextStepIndex].status = "in_progress"
+                                            }
+
+                                            await projectService.updateProject(selectedProject.id, {
+                                              workflow: newWorkflow,
+                                              currentStep: nextStepIndex,
+                                            })
+
+                                            // 重置表單
+                                            setCommitteeForm({
+                                              meetingDate: '',
+                                              purposes: [],
+                                              subsidyType: '',
+                                              oneTimeMonth: '',
+                                              oneTimeAmount: '',
+                                              periodStart: '',
+                                              periodEnd: '',
+                                              frequency: '',
+                                              periodicMonths: '',
+                                              periodicAmount: '',
+                                            })
+                                            setCommitteeAttachments([])
+                                          } else if (step.name.includes("文件寄發")) {
+                                            // 文件寄發及簽核：直接完成，不需要驗收
+                                            const newWorkflow = [...selectedProject.workflow]
+                                            const docStep = newWorkflow[selectedProject.currentStep]
+
+                                            // 儲存說明
+                                            if (inlineExecContentRef.current?.value) {
+                                              docStep.note = inlineExecContentRef.current.value
+                                            }
+
+                                            // 儲存附件
+                                            if (inlineExecAttachments.length > 0) {
+                                              docStep.attachments = inlineExecAttachments.map(att => ({
+                                                id: att.id,
+                                                originalUrl: att.originalUrl,
+                                                thumbnailUrl: att.thumbnailUrl,
+                                                fileName: att.fileName,
+                                                fileSize: att.fileSize,
+                                                mimeType: att.mimeType,
+                                                order: att.order,
+                                              }))
+                                            }
+
+                                            docStep.status = "approved"
+                                            docStep.approvedAt = new Date().toISOString()
+
+                                            // 檢查補助類型
+                                            const committeeStep = newWorkflow.find(s => s.name.includes("評議委員會"))
+                                            let subsidyType = ''
+                                            try {
+                                              if (committeeStep?.note) {
+                                                const data = JSON.parse(committeeStep.note)
+                                                subsidyType = data.subsidyType || ''
+                                              }
+                                            } catch {}
+
+                                            // 啟動下一步
+                                            const nextStepIndex = selectedProject.currentStep + 1
+
+                                            if (subsidyType === 'periodic' && nextStepIndex < newWorkflow.length) {
+                                              // 期間性補助：結案步驟也自動完成
+                                              const closingStep = newWorkflow[nextStepIndex]
+                                              closingStep.status = "approved"
+                                              closingStep.approvedAt = new Date().toISOString()
+                                              closingStep.note = JSON.stringify({ subsidyType: 'periodic' })
+
+                                              // 專案維持進行中狀態（追蹤中）
+                                              await projectService.updateProject(selectedProject.id, {
+                                                workflow: newWorkflow,
+                                                currentStep: nextStepIndex,
+                                              })
+                                            } else {
+                                              // 一次性補助：正常啟動結案步驟
+                                              if (nextStepIndex < newWorkflow.length) {
+                                                newWorkflow[nextStepIndex].status = "in_progress"
+                                              }
+
+                                              await projectService.updateProject(selectedProject.id, {
+                                                workflow: newWorkflow,
+                                                currentStep: nextStepIndex,
+                                              })
+                                            }
+
+                                            // 重置表單
+                                            if (inlineExecContentRef.current) inlineExecContentRef.current.value = ""
+                                            setInlineExecAttachments([])
+                                          } else if (step.name.includes("結案")) {
+                                            // 結案與追蹤：儲存匯款日期或追蹤日期，完成專案
+                                            const newWorkflow = [...selectedProject.workflow]
+                                            const closingStep = newWorkflow[selectedProject.currentStep]
+
+                                            // 從 DOM 收集匯款日期
+                                            const paymentDate = (document.getElementById(`paymentDate-${step.id}`) as HTMLInputElement)?.value || ''
+
+                                            // 儲存表單資料到 step.note
+                                            closingStep.note = JSON.stringify({
+                                              paymentDate,
+                                              trackingDates: closingForm.trackingDates,
+                                            })
+
+                                            // 儲存附件
+                                            if (closingAttachments.length > 0) {
+                                              closingStep.attachments = closingAttachments.map(att => ({
+                                                id: att.id,
+                                                originalUrl: att.originalUrl,
+                                                thumbnailUrl: att.thumbnailUrl,
+                                                fileName: att.fileName,
+                                                fileSize: att.fileSize,
+                                                mimeType: att.mimeType,
+                                                order: att.order,
+                                              }))
+                                            }
+
+                                            closingStep.status = "approved"
+                                            closingStep.approvedAt = new Date().toISOString()
+
+                                            // 更新專案狀態為已完成
+                                            await projectService.updateProject(selectedProject.id, {
+                                              workflow: newWorkflow,
+                                              currentStep: selectedProject.currentStep,
+                                              status: "completed",
+                                            })
+
+                                            // 重置表單
+                                            setClosingForm({ paymentDate: '', trackingDates: [] })
+                                            setClosingAttachments([])
+                                          } else {
+                                            // 其他步驟：使用執行流程
+                                            await workflowService.submitExecution(
+                                              selectedProject.id,
+                                              currentStep.id,
+                                              user.id,
+                                              {
+                                                content: inlineExecContentRef.current?.value || "",
+                                                attachments: inlineExecAttachments as ImageData[],
+                                              }
+                                            )
+                                            await loadProjectExecutions(selectedProject.id)
+                                            if (inlineExecContentRef.current) inlineExecContentRef.current.value = ""
+                                            setInlineExecAttachments([])
+                                          }
                                           // Refresh project data
+                                          await loadData()
                                           const updated = await projectService.getProjectById(selectedProject.id)
                                           if (updated) setSelectedProject(updated)
                                         } catch (error) {
-                                          console.error("Failed to submit execution:", error)
+                                          console.error("Failed to submit:", error)
                                           alert("提交失敗，請稍後再試")
                                         } finally {
                                           setIsProcessing(false)
                                         }
                                       }}
-                                      disabled={isProcessing}
-                                    >
-                                      <Send className="h-4 w-4 mr-2" />
-                                      {isProcessing ? "送出中..." : "送出"}
-                                    </Button>
+                                          disabled={isProcessing}
+                                        >
+                                          {step.name.includes("結案") ? (
+                                            <>
+                                              <Check className="h-4 w-4 mr-2" />
+                                              {isProcessing ? "結案中..." : "結案"}
+                                            </>
+                                          ) : (
+                                            <>
+                                              <Send className="h-4 w-4 mr-2" />
+                                              {isProcessing ? "送出中..." : "送出"}
+                                            </>
+                                          )}
+                                        </Button>
+                                      )
+                                    })()}
                                   </div>
                                 </div>
                               )}
@@ -2447,10 +4464,6 @@ export function PlansPage() {
                 </CardContent>
               </Card>
 
-            {/* Project info */}
-            <div className="text-xs text-muted-foreground text-center pt-4">
-              建立於 {format(new Date(selectedProject.createdAt), "yyyy/MM/dd HH:mm")}
-            </div>
           </div>
         </div>
       </div>
@@ -2458,51 +4471,114 @@ export function PlansPage() {
   }
 
   return (
-    <div className="h-[calc(100vh-8rem)] overflow-hidden">
-      {/* Page Header */}
-      <div className="flex items-center justify-between mb-4">
-        <div>
-          <h1 className="text-3xl font-bold">計畫管理</h1>
-          <p className="text-muted-foreground">管理計畫與專案流程</p>
-        </div>
+    <div className="h-[calc(100vh-8rem)] overflow-hidden flex flex-col">
+      {/* Page Header - includes plan selector when plan is selected */}
+      <div className="mb-4 shrink-0">
+        {!selectedPlan ? (
+          // Normal header when no plan selected
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-3xl font-bold">計畫管理</h1>
+              <p className="text-muted-foreground">管理計畫與專案流程</p>
+            </div>
+          </div>
+        ) : (
+          // Plan selector header when plan is selected - hide on mobile when viewing projects/detail
+          <div className={cn("space-y-2", mobileView !== "plans" && "hidden md:block")}>
+            <div className="flex items-center gap-4">
+              {/* Back button */}
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setSelectedPlan(null)
+                  setSelectedProject(null)
+                  setMobileView("plans")
+                }}
+                className="shrink-0"
+              >
+                <ArrowLeft className="h-4 w-4 mr-2" />
+                返回列表
+              </Button>
+
+              {/* All plans horizontal scroll */}
+              <div className="flex-1 overflow-hidden">
+                <ScrollArea className="w-full">
+                  <div className="flex gap-2 pb-1">
+                    {filteredPlans.map((plan) => {
+                      const isSelected = selectedPlan?.id === plan.id
+                      return (
+                        <div
+                          key={plan.id}
+                          className={cn(
+                            "flex items-center gap-2 px-4 py-2 rounded-full cursor-pointer transition-all whitespace-nowrap shrink-0",
+                            isSelected
+                              ? "bg-primary text-primary-foreground"
+                              : "bg-muted hover:bg-muted/80"
+                          )}
+                          onClick={() => handleSelectPlan(plan)}
+                        >
+                          {/* Thumbnail */}
+                          <div className="w-8 h-8 rounded-full overflow-hidden bg-background/20 shrink-0">
+                            {plan.coverImage ? (
+                              <img
+                                src={plan.coverImage.thumbnailUrl || plan.coverImage.originalUrl}
+                                alt={plan.name}
+                                className="w-full h-full object-cover"
+                              />
+                            ) : (
+                              <div className="w-full h-full flex items-center justify-center">
+                                <FolderKanban className="h-4 w-4" />
+                              </div>
+                            )}
+                          </div>
+                          <span className="font-medium">{plan.name}</span>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </ScrollArea>
+              </div>
+
+              {/* Actions for selected plan */}
+              <div className="flex gap-2 shrink-0">
+                <Button
+                  variant="outline"
+                  onClick={() => openPlanView(selectedPlan)}
+                >
+                  <Eye className="h-4 w-4 mr-2" />
+                  查看計畫
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
-      {/* Miller Columns Layout */}
-      <Card className="h-[calc(100%-5rem)] overflow-hidden">
-        {/* Desktop: Two columns with sliding */}
-        <div className="hidden md:flex h-full relative overflow-hidden">
-          {/* Plans Column - slides out when detail is open */}
-          <div
-            className={cn(
-              "transition-all duration-300 ease-in-out flex-shrink-0 border-r",
-              selectedProject ? "w-0 opacity-0 overflow-hidden" : "w-[35%]"
-            )}
-          >
-            <PlansColumn />
-          </div>
-          {/* Projects Column - always visible */}
-          <div
-            className={cn(
-              "transition-all duration-300 ease-in-out flex-shrink-0 border-r",
-              selectedProject ? "w-[30%]" : "w-[65%]"
-            )}
-          >
-            <ProjectsColumn />
-          </div>
-          {/* Detail Column - slides in when project selected */}
-          <div
-            className={cn(
-              "transition-all duration-300 ease-in-out flex-shrink-0",
-              selectedProject ? "w-[70%]" : "w-0 opacity-0 overflow-hidden"
-            )}
-          >
-            <ProjectDetailColumn />
-          </div>
+      {/* New Layout: Top cards + Bottom two columns */}
+      <Card className="flex-1 overflow-hidden flex flex-col">
+        {/* Desktop View */}
+        <div className="hidden md:flex md:flex-col h-full">
+          {/* Top: Plan Cards - only show when no plan selected */}
+          {!selectedPlan && <PlansCards />}
+
+          {/* Bottom: Two columns (Projects + Detail) */}
+          {selectedPlan && (
+            <div className="flex flex-1 overflow-hidden">
+              {/* Left: Projects list */}
+              <div className="w-[20%] border-r overflow-hidden">
+                <ProjectsColumn />
+              </div>
+              {/* Right: Project detail */}
+              <div className="flex-1 overflow-hidden">
+                <ProjectDetailColumn />
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Mobile: Single column with view switching */}
         <div className="md:hidden h-full w-full overflow-hidden">
-          {mobileView === "plans" && <PlansColumn />}
+          {mobileView === "plans" && <PlansCards />}
           {mobileView === "projects" && <ProjectsColumn />}
           {mobileView === "detail" && <ProjectDetailColumn />}
         </div>
@@ -2516,47 +4592,20 @@ export function PlansPage() {
           </DialogHeader>
 
           <div className="space-y-6">
-            {/* 基本資訊（固定在最上方） */}
-            <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label>計畫名稱 *</Label>
-                  <Input
-                    value={planFormData.name}
-                    onChange={(e) =>
-                      setPlanFormData({ ...planFormData, name: e.target.value })
-                    }
-                    placeholder="例如：勁力守護計畫"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label>計畫類型</Label>
-                  <Input
-                    value={planFormData.type}
-                    onChange={(e) =>
-                      setPlanFormData({ ...planFormData, type: e.target.value })
-                    }
-                    placeholder="例如：社會福利"
-                  />
-                </div>
-              </div>
-              <div className="space-y-2">
-                <Label>計畫描述</Label>
-                <textarea
-                  className="flex min-h-16 w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm"
-                  value={planFormData.description}
-                  onChange={(e) =>
-                    setPlanFormData({ ...planFormData, description: e.target.value })
-                  }
-                  placeholder="描述計畫目標..."
-                />
-              </div>
-            </div>
-
-            <Separator />
-
             {/* Tab 切換 */}
             <div className="flex border-b -mx-6 px-6">
+              <button
+                type="button"
+                className={cn(
+                  "flex-1 py-3 text-sm font-medium border-b-2 transition-colors",
+                  planFormMode === 'basic'
+                    ? "border-primary text-primary"
+                    : "border-transparent text-muted-foreground hover:text-foreground"
+                )}
+                onClick={() => setPlanFormMode('basic')}
+              >
+                基本資訊
+              </button>
               <button
                 type="button"
                 className={cn(
@@ -2582,6 +4631,57 @@ export function PlansPage() {
                 流程編輯
               </button>
             </div>
+
+            {/* 基本資訊模式 */}
+            {planFormMode === 'basic' && (
+              <div className="space-y-4">
+                <div className="grid grid-cols-3 gap-4">
+                  <div className="space-y-2 col-span-2">
+                    <Label>計畫名稱 *</Label>
+                    <Input
+                      value={planFormData.name}
+                      onChange={(e) =>
+                        setPlanFormData({ ...planFormData, name: e.target.value })
+                      }
+                      placeholder="例如：勁力守護計畫"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>代號</Label>
+                    <Input
+                      value={planFormData.code}
+                      onChange={(e) =>
+                        setPlanFormData({ ...planFormData, code: e.target.value.toUpperCase() })
+                      }
+                      placeholder="例如：JL"
+                      maxLength={10}
+                    />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label>計畫類型</Label>
+                  <Input
+                    value={planFormData.type}
+                    onChange={(e) =>
+                      setPlanFormData({ ...planFormData, type: e.target.value })
+                    }
+                    placeholder="例如：社會福利"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>計畫描述</Label>
+                  <textarea
+                    className="flex min-h-32 w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm"
+                    value={planFormData.description}
+                    onChange={(e) =>
+                      setPlanFormData({ ...planFormData, description: e.target.value })
+                    }
+                    placeholder="描述計畫目標...&#10;可以換行輸入多行內容"
+                  />
+                  <p className="text-xs text-muted-foreground">支援換行，會在卡片上顯示</p>
+                </div>
+              </div>
+            )}
 
             {/* 前台介紹模式 */}
             {planFormMode === 'intro' && (
@@ -2908,59 +5008,88 @@ export function PlansPage() {
           <DialogHeader>
             <DialogTitle>{editingProject ? "編輯專案" : "新增專案"}</DialogTitle>
             <DialogDescription>
-              {selectedPlan?.name} 下的專案
+              {selectedPlan?.name ? `${selectedPlan.name} 下的專案` : projectFormData.planId ? `${plans.find(p => p.id === projectFormData.planId)?.name} 下的專案` : "請先選擇計畫"}
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4">
-            <div className="space-y-2">
-              <Label>專案名稱 *</Label>
-              <Input
-                value={projectFormData.name}
-                onChange={(e) =>
-                  setProjectFormData({ ...projectFormData, name: e.target.value })
-                }
-                placeholder="例如：112年度急難救助"
-              />
-            </div>
+            {/* Plan selection - only show when no selectedPlan (flow mode) */}
+            {!selectedPlan && !editingProject && (
+              <div className="space-y-2">
+                <Label>選擇計畫 *</Label>
+                <Select
+                  value={projectFormData.planId}
+                  onValueChange={(v) =>
+                    setProjectFormData({ ...projectFormData, planId: v })
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="選擇計畫" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {plans.filter(p => p.status === 'active').map((plan) => (
+                      <SelectItem key={plan.id} value={plan.id}>
+                        {plan.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
 
-            <div className="space-y-2">
-              <Label>專案描述</Label>
-              <textarea
-                className="flex min-h-20 w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm"
-                value={projectFormData.description}
-                onChange={(e) =>
-                  setProjectFormData({ ...projectFormData, description: e.target.value })
-                }
-                placeholder="描述專案內容..."
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label>關聯機構</Label>
-              <Select
-                value={projectFormData.organizationId}
-                onValueChange={(v) =>
-                  setProjectFormData({ ...projectFormData, organizationId: v })
-                }
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="選擇機構（可選）" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="">無</SelectItem>
-                  {organizations.map((org) => (
-                    <SelectItem key={org.id} value={org.id}>
-                      {org.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>專案名稱 *</Label>
+                <Input
+                  value={projectFormData.name}
+                  onChange={(e) =>
+                    setProjectFormData({ ...projectFormData, name: e.target.value })
+                  }
+                  placeholder="例如：王小明"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>專案編號</Label>
+                <Input
+                  value={projectFormData.projectNumber}
+                  onChange={(e) =>
+                    setProjectFormData({ ...projectFormData, projectNumber: e.target.value })
+                  }
+                  placeholder={(() => {
+                    const plan = selectedPlan || plans.find(p => p.id === projectFormData.planId)
+                    return plan?.code ? `例如：${plan.code}11509001` : "例如：JL11509001"
+                  })()}
+                />
+              </div>
             </div>
 
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label>專案類型</Label>
+                <Label>來源 *</Label>
+                <Select
+                  value={projectFormData.sourceType}
+                  onValueChange={(v: "個人" | "機構" | "董事") =>
+                    setProjectFormData({
+                      ...projectFormData,
+                      sourceType: v,
+                      // Clear organization when not "機構"
+                      organizationId: v === "機構" ? projectFormData.organizationId : "",
+                    })
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="選擇來源" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="個人">個人</SelectItem>
+                    <SelectItem value="機構">機構</SelectItem>
+                    <SelectItem value="董事">董事</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label>補助用途</Label>
                 <Select
                   value={projectFormData.projectType}
                   onValueChange={(v) =>
@@ -2971,31 +5100,38 @@ export function PlansPage() {
                     <SelectValue placeholder="選擇類型" />
                   </SelectTrigger>
                   <SelectContent>
-                    {projectTypes.map((type) => (
-                      <SelectItem key={type.id} value={type.name}>
-                        {type.name} ({type.budgetMin.toLocaleString()} ~{" "}
-                        {type.budgetMax.toLocaleString()})
+                    <SelectItem value="急難救助">急難救助</SelectItem>
+                    <SelectItem value="醫療補助">醫療補助</SelectItem>
+                    <SelectItem value="教育扶助">教育扶助</SelectItem>
+                    <SelectItem value="喪葬補助">喪葬補助</SelectItem>
+                    <SelectItem value="生活扶助">生活扶助</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            {projectFormData.sourceType === "機構" && (
+              <div className="space-y-2">
+                <Label>關聯機構 *</Label>
+                <Select
+                  value={projectFormData.organizationId}
+                  onValueChange={(v) =>
+                    setProjectFormData({ ...projectFormData, organizationId: v })
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="選擇機構" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {organizations.map((org) => (
+                      <SelectItem key={org.id} value={org.id}>
+                        {org.name}
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
               </div>
-
-              <div className="space-y-2">
-                <Label>預算金額</Label>
-                <Input
-                  type="number"
-                  value={projectFormData.budgetAmount}
-                  onChange={(e) =>
-                    setProjectFormData({
-                      ...projectFormData,
-                      budgetAmount: parseInt(e.target.value) || 0,
-                    })
-                  }
-                  placeholder="0"
-                />
-              </div>
-            </div>
+            )}
 
             {/* First step attachment upload (only show when creating and first step requires attachment) */}
             {!editingProject && firstStepRequiresAttachment() && (
@@ -3004,7 +5140,7 @@ export function PlansPage() {
                   <Paperclip className="h-4 w-4" />
                   {getFirstStepName()} - 附件上傳 *
                   <Badge variant="warning" className="text-xs">
-                    {selectedPlan?.workflow[0]?.type === "establishment" ? "成立審核" : "審批"}
+                    {getTargetPlanForForm()?.workflow[0]?.type === "establishment" ? "成立審核" : "審批"}
                   </Badge>
                 </Label>
                 <p className="text-sm text-muted-foreground">
@@ -3400,55 +5536,76 @@ export function PlansPage() {
 
       {/* File Preview Dialog */}
       <Dialog open={!!previewFile} onOpenChange={(open) => !open && setPreviewFile(null)}>
-        <DialogContent className="max-w-4xl max-h-[90vh] p-0 overflow-hidden">
-          <DialogHeader className="p-4 border-b">
+        <DialogContent className="max-w-6xl w-[95vw] max-h-[95vh] p-0 overflow-hidden">
+          <DialogHeader className="p-3 md:p-4 border-b shrink-0">
             <DialogTitle className="flex items-center gap-2 truncate pr-8">
               {previewFile?.type === "application/pdf" ? (
                 <FileText className="h-5 w-5 text-red-500 shrink-0" />
               ) : (
                 <Eye className="h-5 w-5 shrink-0" />
               )}
-              <span className="truncate">{previewFile?.name}</span>
+              <span className="truncate text-sm md:text-base">{previewFile?.name}</span>
             </DialogTitle>
           </DialogHeader>
-          <div className="flex-1 overflow-auto bg-muted/30">
+          <div className="flex-1 overflow-auto bg-muted/30" style={{ height: 'calc(95vh - 8rem)' }}>
             {previewFile?.type === "application/pdf" ? (
-              <iframe
-                src={previewFile.url}
-                className="w-full h-[calc(90vh-8rem)]"
-                title={previewFile.name}
-              />
+              <object
+                data={previewFile.url}
+                type="application/pdf"
+                className="w-full h-full"
+              >
+                <iframe
+                  src={`https://docs.google.com/viewer?url=${encodeURIComponent(previewFile.url)}&embedded=true`}
+                  className="w-full h-full"
+                  title={previewFile.name}
+                >
+                  <div className="flex flex-col items-center justify-center h-full p-8 text-center">
+                    <FileText className="h-16 w-16 text-red-500 mb-4" />
+                    <p className="text-muted-foreground mb-4">無法在瀏覽器中預覽此 PDF</p>
+                    <Button asChild>
+                      <a href={previewFile.url} target="_blank" rel="noopener noreferrer">
+                        在新分頁開啟
+                      </a>
+                    </Button>
+                  </div>
+                </iframe>
+              </object>
             ) : (
-              <div className="flex items-center justify-center p-4 min-h-[50vh]">
+              <div className="flex items-center justify-center p-4 h-full">
                 <img
                   src={previewFile?.url}
                   alt={previewFile?.name}
-                  className="max-w-full max-h-[calc(90vh-10rem)] object-contain"
+                  className="max-w-full max-h-full object-contain"
                 />
               </div>
             )}
           </div>
-          <div className="p-3 border-t flex justify-end gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setPreviewFile(null)}
-            >
-              關閉
-            </Button>
-            <Button
-              variant="secondary"
-              size="sm"
-              asChild
-            >
-              <a
-                href={previewFile?.url}
-                target="_blank"
-                rel="noopener noreferrer"
+          <div className="p-3 border-t flex justify-between items-center shrink-0">
+            <span className="text-xs text-muted-foreground hidden sm:block">
+              {previewFile?.type === "application/pdf" && "PDF 預覽 - 如果無法顯示，請點擊新分頁開啟"}
+            </span>
+            <div className="flex gap-2 ml-auto">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setPreviewFile(null)}
               >
-                新分頁開啟
-              </a>
-            </Button>
+                關閉
+              </Button>
+              <Button
+                variant="default"
+                size="sm"
+                asChild
+              >
+                <a
+                  href={previewFile?.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  新分頁開啟
+                </a>
+              </Button>
+            </div>
           </div>
         </DialogContent>
       </Dialog>

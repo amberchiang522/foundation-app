@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react'
 import { cn } from '@/lib/utils'
-import { Upload, ImageIcon } from 'lucide-react'
+import { Upload, ImageIcon, FileText } from 'lucide-react'
 
 interface DropZoneProps {
   onFilesSelected: (files: File[]) => void
@@ -104,6 +104,8 @@ export function DropZone({
           )}>
             {isDragging ? (
               <Upload className="h-6 w-6 text-primary" />
+            ) : accept?.includes('pdf') ? (
+              <FileText className="h-6 w-6 text-muted-foreground" />
             ) : (
               <ImageIcon className="h-6 w-6 text-muted-foreground" />
             )}
@@ -112,8 +114,10 @@ export function DropZone({
             {isDragging ? '放開以上傳' : '點擊或拖曳上傳'}
           </p>
           <p className="text-xs text-muted-foreground mt-1">
-            {multiple ? '支援多張圖片' : '單張圖片'}
-            {aspectRatio && aspectRatio !== 'free' && ` · 建議比例 ${aspectRatio}`}
+            {accept?.includes('pdf')
+              ? (multiple ? '支援多張圖片及 PDF' : '支援圖片及 PDF')
+              : (multiple ? '支援多張圖片' : '單張圖片')
+            }
           </p>
         </div>
       )}

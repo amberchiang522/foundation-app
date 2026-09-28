@@ -124,7 +124,11 @@ export function MultiImageUploader({
           multiple={remainingSlots > 1}
           disabled={disabled || isUploading}
           aspectRatio={config.aspectRatio === 'free' ? undefined : config.aspectRatio}
-          className={value.length > 0 ? 'max-w-[200px]' : ''}
+          className={cn(
+            value.length > 0 ? 'max-w-[150px]' : 'max-w-[180px]',
+            // Portrait document style for receipt type
+            type === 'receipt' && 'mx-auto'
+          )}
         />
       )}
 

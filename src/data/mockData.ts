@@ -165,7 +165,7 @@ export const mockWorkflowTemplates: WorkflowTemplate[] = [
       { id: 'step-2', name: '主管審核', type: 'approval', approverType: 'tag', approverTagId: 'tag-2' },
       { id: 'step-3', name: '財務審核', type: 'approval', approverType: 'tag', approverTagId: 'tag-1' },
       { id: 'step-4', name: '執行中', type: 'status' },
-      { id: 'step-5', name: '結案', type: 'status' },
+      { id: 'step-5', name: '結案與追蹤', type: 'status' },
     ],
     createdAt: '2024-01-01T00:00:00Z',
   },

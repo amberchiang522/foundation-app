@@ -50,11 +50,11 @@ export const imageConfig: Record<ImageType, {
     thumbnailSize: { width: 400, height: 225 },
   },
   'receipt': {
-    aspectRatio: 'free',
+    aspectRatio: '3:4',  // Portrait document style
     maxCount: 5,
     required: true,
     compress: false,
-    thumbnailSize: { width: 300, height: 0 }, // auto height
+    thumbnailSize: { width: 300, height: 400 },
   },
   'event-review': {
     aspectRatio: '16:9',

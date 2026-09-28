@@ -189,6 +189,7 @@ export interface Plan {
   name: string
   description: string
   type: string
+  code?: string  // 計畫英文代號，如 JL
 
   workflow: WorkflowStep[]
 
@@ -235,6 +236,7 @@ export interface Project {
   organizationId?: string  // Link to organization
   name: string
   description: string
+  projectNumber?: string  // 專案編號，如 JL-202409
 
   projectType: string
   budgetAmount: number

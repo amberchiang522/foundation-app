@@ -145,7 +145,7 @@ export function SettingsPage() {
         { id: "step-1", name: "提案", type: "status" },
         { id: "step-2", name: "審核", type: "approval" },
         { id: "step-3", name: "執行", type: "status" },
-        { id: "step-4", name: "結案", type: "status" },
+        { id: "step-4", name: "結案與追蹤", type: "status" },
       ]
     )
     setIsTemplateDialogOpen(true)
