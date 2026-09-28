@@ -1400,7 +1400,10 @@ export function PlansPage() {
             // 評議委員會專案清單
             const committeeProjects: { date: number; project: Project; org: string }[] = []
 
-            activeProjects.forEach(p => {
+            // 包含進行中和已結案的專案，以顯示完整匯款紀錄
+            const allTrackingProjects = [...activeProjects, ...completedProjects]
+
+            allTrackingProjects.forEach(p => {
               const committeeStep = p.workflow.find(s => s.name.includes("評議委員會"))
               const org = organizations.find(o => o.id === p.organizationId)
 
@@ -1482,7 +1485,12 @@ export function PlansPage() {
                           {committeeProjects.map(({ date, project, org }) => (
                             <div
                               key={project.id}
-                              className="p-2 rounded border bg-purple-50 dark:bg-purple-950/20 cursor-pointer hover:bg-purple-100 dark:hover:bg-purple-950/30"
+                              className={cn(
+                                "p-2 rounded border cursor-pointer",
+                                project.status === 'completed'
+                                  ? "bg-gray-50 dark:bg-gray-950/20 hover:bg-gray-100 dark:hover:bg-gray-950/30 opacity-70"
+                                  : "bg-purple-50 dark:bg-purple-950/20 hover:bg-purple-100 dark:hover:bg-purple-950/30"
+                              )}
                               onClick={() => {
                                 const plan = plans.find(pl => pl.id === project.planId)
                                 if (plan) {
@@ -1492,7 +1500,12 @@ export function PlansPage() {
                               }}
                             >
                               <div className="flex items-center justify-between">
-                                <div className="font-medium text-sm">{project.name}</div>
+                                <div className="flex items-center gap-2">
+                                  <span className="font-medium text-sm">{project.name}</span>
+                                  {project.status === 'completed' && (
+                                    <Badge variant="outline" className="text-xs text-green-600 border-green-300">已結案</Badge>
+                                  )}
+                                </div>
                                 <Badge variant="secondary" className="text-xs">{date} 日</Badge>
                               </div>
                               <div className="text-xs text-muted-foreground">{org}</div>
@@ -1517,7 +1530,12 @@ export function PlansPage() {
                           {oneTimePayments.map(({ project, amount, org }) => (
                             <div
                               key={project.id}
-                              className="p-2 rounded border bg-orange-50 dark:bg-orange-950/20 cursor-pointer hover:bg-orange-100 dark:hover:bg-orange-950/30"
+                              className={cn(
+                                "p-2 rounded border cursor-pointer",
+                                project.status === 'completed'
+                                  ? "bg-gray-50 dark:bg-gray-950/20 hover:bg-gray-100 dark:hover:bg-gray-950/30 opacity-70"
+                                  : "bg-orange-50 dark:bg-orange-950/20 hover:bg-orange-100 dark:hover:bg-orange-950/30"
+                              )}
                               onClick={() => {
                                 const plan = plans.find(pl => pl.id === project.planId)
                                 if (plan) {
@@ -1527,7 +1545,12 @@ export function PlansPage() {
                               }}
                             >
                               <div className="flex items-center justify-between">
-                                <div className="font-medium text-sm">{project.name}</div>
+                                <div className="flex items-center gap-2">
+                                  <span className="font-medium text-sm">{project.name}</span>
+                                  {project.status === 'completed' && (
+                                    <Badge variant="outline" className="text-xs text-green-600 border-green-300">已結案</Badge>
+                                  )}
+                                </div>
                                 <span className="text-sm font-semibold text-orange-600">
                                   NT$ {amount.toLocaleString()}
                                 </span>
@@ -1554,7 +1577,12 @@ export function PlansPage() {
                           {periodicPayments.map(({ project, amount, org, frequency }) => (
                             <div
                               key={project.id}
-                              className="p-2 rounded border bg-blue-50 dark:bg-blue-950/20 cursor-pointer hover:bg-blue-100 dark:hover:bg-blue-950/30"
+                              className={cn(
+                                "p-2 rounded border cursor-pointer",
+                                project.status === 'completed'
+                                  ? "bg-gray-50 dark:bg-gray-950/20 hover:bg-gray-100 dark:hover:bg-gray-950/30 opacity-70"
+                                  : "bg-blue-50 dark:bg-blue-950/20 hover:bg-blue-100 dark:hover:bg-blue-950/30"
+                              )}
                               onClick={() => {
                                 const plan = plans.find(pl => pl.id === project.planId)
                                 if (plan) {
@@ -1564,7 +1592,12 @@ export function PlansPage() {
                               }}
                             >
                               <div className="flex items-center justify-between">
-                                <div className="font-medium text-sm">{project.name}</div>
+                                <div className="flex items-center gap-2">
+                                  <span className="font-medium text-sm">{project.name}</span>
+                                  {project.status === 'completed' && (
+                                    <Badge variant="outline" className="text-xs text-green-600 border-green-300">已結案</Badge>
+                                  )}
+                                </div>
                                 <span className="text-sm font-semibold text-blue-600">
                                   NT$ {amount.toLocaleString()}
                                 </span>
