@@ -1394,7 +1394,7 @@ export function PlansPage() {
             const monthEvents: { date: number; type: 'committee' | 'oneTime' | 'periodic'; project: Project }[] = []
 
             // 收集當月匯款清單
-            const oneTimePayments: { project: Project; amount: number; org: string }[] = []
+            const oneTimePayments: { project: Project; amount: number; org: string; date: number }[] = []
             const periodicPayments: { project: Project; amount: number; org: string; frequency: string }[] = []
 
             // 評議委員會專案清單
@@ -1417,33 +1417,50 @@ export function PlansPage() {
                 }
               }
 
-              if (!committeeStep?.note) return
-              try {
-                const data = JSON.parse(committeeStep.note)
+              // 從評議委員會步驟取得補助類型和金額
+              let subsidyData: { subsidyType?: string; oneTimeAmount?: string; periodicAmount?: string; periodStart?: string; periodEnd?: string; frequency?: string; periodicMonths?: string } = {}
+              if (committeeStep?.note) {
+                try {
+                  subsidyData = JSON.parse(committeeStep.note)
+                } catch {}
+              }
 
-                if (data.subsidyType === 'oneTime') {
-                  if (data.oneTimeMonth === currentMonthStr) {
-                    const amount = Number(data.oneTimeAmount) || 0
-                    oneTimePayments.push({ project: p, amount, org: org?.name || '' })
-                    monthEvents.push({ date: 1, type: 'oneTime', project: p })
-                  }
-                } else if (data.subsidyType === 'periodic') {
-                  const periodStart = new Date(data.periodStart)
-                  const periodEnd = new Date(data.periodEnd)
-                  const currentDate = new Date(trackingMonth.year, trackingMonth.month, 15)
+              // 從結案步驟取得實際匯款日期
+              const closingStep = p.workflow.find(s => s.name.includes("結案"))
+              let closingData: { paymentDate?: string; trackingDates?: string[] } = {}
+              if (closingStep?.note) {
+                try {
+                  closingData = JSON.parse(closingStep.note)
+                } catch {}
+              }
 
-                  if (currentDate >= periodStart && currentDate <= periodEnd) {
-                    const amount = Number(data.periodicAmount) || 0
-                    periodicPayments.push({
-                      project: p,
-                      amount,
-                      org: org?.name || '',
-                      frequency: data.frequency === 'monthly' ? '每月' : `每${data.periodicMonths}月`
-                    })
-                    monthEvents.push({ date: 1, type: 'periodic', project: p })
-                  }
+              // 一次性補助：檢查匯款日期是否在當月
+              if (subsidyData.subsidyType === 'oneTime') {
+                const paymentDate = closingData.paymentDate || ''
+                if (paymentDate && paymentDate.startsWith(currentMonthStr)) {
+                  const day = parseInt(paymentDate.split('-')[2])
+                  const amount = Number(subsidyData.oneTimeAmount) || 0
+                  oneTimePayments.push({ project: p, amount, org: org?.name || '', date: day })
+                  monthEvents.push({ date: day, type: 'oneTime', project: p })
                 }
-              } catch {}
+              } else if (subsidyData.subsidyType === 'periodic') {
+                // 期間性補助：檢查當月是否在補助期間內
+                const periodStart = new Date(subsidyData.periodStart || '')
+                const periodEnd = new Date(subsidyData.periodEnd || '')
+                const currentDate = new Date(trackingMonth.year, trackingMonth.month, 15)
+
+                if (currentDate >= periodStart && currentDate <= periodEnd) {
+                  const amount = Number(subsidyData.periodicAmount) || 0
+                  periodicPayments.push({
+                    project: p,
+                    amount,
+                    org: org?.name || '',
+                    frequency: subsidyData.frequency === 'monthly' ? '每月' : `每${subsidyData.periodicMonths}月`
+                  })
+                  // 期間性匯款顯示在月初
+                  monthEvents.push({ date: 1, type: 'periodic', project: p })
+                }
+              }
             })
 
             const totalOneTime = oneTimePayments.reduce((sum, p) => sum + p.amount, 0)
@@ -1527,7 +1544,7 @@ export function PlansPage() {
                         <p className="text-xs text-muted-foreground">本月無一次性匯款</p>
                       ) : (
                         <div className="space-y-2">
-                          {oneTimePayments.map(({ project, amount, org }) => (
+                          {oneTimePayments.map(({ project, amount, org, date }) => (
                             <div
                               key={project.id}
                               className={cn(
@@ -1551,9 +1568,12 @@ export function PlansPage() {
                                     <Badge variant="outline" className="text-xs text-green-600 border-green-300">已結案</Badge>
                                   )}
                                 </div>
-                                <span className="text-sm font-semibold text-orange-600">
-                                  NT$ {amount.toLocaleString()}
-                                </span>
+                                <div className="flex items-center gap-2">
+                                  <Badge variant="secondary" className="text-xs">{date} 日</Badge>
+                                  <span className="text-sm font-semibold text-orange-600">
+                                    NT$ {amount.toLocaleString()}
+                                  </span>
+                                </div>
                               </div>
                               <div className="text-xs text-muted-foreground">{org}</div>
                             </div>
