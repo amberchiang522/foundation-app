@@ -110,6 +110,9 @@ export function PlansPage() {
   // Flow view project modal state
   const [flowProjectModal, setFlowProjectModal] = useState<Project | null>(null)
 
+  // Ref for project detail scroll container
+  const projectDetailScrollRef = useRef<HTMLDivElement>(null)
+
   // Clear flowProjectModal when selectedProject is cleared or viewMode changes
   useEffect(() => {
     if (!selectedProject || viewMode !== 'flow') {
@@ -1117,7 +1120,7 @@ export function PlansPage() {
     }
 
     return (
-      <div className="p-2 md:p-4 flex-1 overflow-x-auto overflow-y-auto min-w-0">
+      <div className="p-2 md:p-4 flex-1 overflow-x-auto overflow-y-auto min-w-0 pb-4" style={{ WebkitOverflowScrolling: 'touch' }}>
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3 md:mb-4">
           <div className="flex items-center gap-2 md:gap-3">
@@ -1165,7 +1168,7 @@ export function PlansPage() {
 
         {/* Card View */}
         {viewMode === 'card' && (
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4 pb-6">
                 {filteredPlans.map((plan) => {
                   const projectCount = projects.filter((p) => p.planId === plan.id && p.status !== "archived").length
                   const activeCount = projects.filter((p) => p.planId === plan.id && p.status === "active").length
@@ -2120,7 +2123,7 @@ export function PlansPage() {
           </div>
         </div>
 
-        <div className="flex-1 min-w-0 overflow-y-auto overflow-x-hidden">
+        <div ref={projectDetailScrollRef} className="flex-1 min-w-0 overflow-y-auto overflow-x-hidden">
           <div className="p-4 space-y-6">
             {/* Workflow Progress */}
             <div className="w-full">
@@ -2563,9 +2566,12 @@ export function PlansPage() {
                                     size="icon"
                                     className="h-6 w-6"
                                     onClick={() => {
-                                      const scrollY = window.scrollY
+                                      const container = projectDetailScrollRef.current
+                                      const scrollTop = container?.scrollTop || 0
                                       setEditingStepId(null)
-                                      requestAnimationFrame(() => window.scrollTo(0, scrollY))
+                                      setTimeout(() => {
+                                        if (container) container.scrollTop = scrollTop
+                                      }, 0)
                                     }}
                                   >
                                     <Check className="h-3.5 w-3.5" />
@@ -2576,9 +2582,12 @@ export function PlansPage() {
                                     size="icon"
                                     className="h-6 w-6"
                                     onClick={() => {
-                                      const scrollY = window.scrollY
+                                      const container = projectDetailScrollRef.current
+                                      const scrollTop = container?.scrollTop || 0
                                       setEditingStepId(step.id)
-                                      requestAnimationFrame(() => window.scrollTo(0, scrollY))
+                                      setTimeout(() => {
+                                        if (container) container.scrollTop = scrollTop
+                                      }, 0)
                                     }}
                                   >
                                     <EditIcon className="h-3.5 w-3.5" />
@@ -2832,7 +2841,7 @@ export function PlansPage() {
                                                 multiple
                                                 className="h-full w-full md:w-[180px]"
                                                 onFilesSelected={async (files) => {
-                                                  const scrollY = window.scrollY
+                                                  const container = projectDetailScrollRef.current; const scrollTop = container?.scrollTop || 0
                                                   const validFiles = files.filter(file => {
                                                     const validation = validateFile(file, 'receipt')
                                                     return validation.valid
@@ -2855,7 +2864,7 @@ export function PlansPage() {
                                                       order: startOrder + idx,
                                                     }))
                                                     updateStepAttachments(selectedProject, originalIndex, [...existingAttachments, ...newAttachments])
-                                                    requestAnimationFrame(() => window.scrollTo(0, scrollY))
+                                                    setTimeout(() => { if (container) container.scrollTop = scrollTop }, 0)
                                                   } catch (err) {
                                                     console.error('Upload failed:', err)
                                                   }
@@ -3167,7 +3176,7 @@ export function PlansPage() {
                                           multiple
                                           className="h-full"
                                           onFilesSelected={async (files) => {
-                                            const scrollY = window.scrollY
+                                            const container = projectDetailScrollRef.current; const scrollTop = container?.scrollTop || 0
                                             const validFiles = files.filter(file => {
                                               const validation = validateFile(file, 'receipt')
                                               return validation.valid
@@ -3191,7 +3200,7 @@ export function PlansPage() {
                                                 order: startOrder + idx,
                                               }))
                                               updateStepAttachments(selectedProject, originalIndex, [...existingAttachments, ...newAttachments])
-                                              requestAnimationFrame(() => window.scrollTo(0, scrollY))
+                                              setTimeout(() => { if (container) container.scrollTop = scrollTop }, 0)
                                             } catch (err) {
                                               console.error('Upload failed:', err)
                                             }
@@ -3258,7 +3267,7 @@ export function PlansPage() {
                                                   e.preventDefault()
                                                   e.stopPropagation()
                                                   // Save scroll position
-                                                  const scrollY = window.scrollY
+                                                  const container = projectDetailScrollRef.current; const scrollTop = container?.scrollTop || 0
                                                   setEditingExecutionId(execution.id)
                                                   setEditExecContent(execution.content || "")
                                                   setEditExecAttachments((execution.attachments || []).map(att => ({
@@ -3271,9 +3280,9 @@ export function PlansPage() {
                                                     order: att.order || 0,
                                                   })))
                                                   // Restore scroll position after React render
-                                                  requestAnimationFrame(() => {
-                                                    window.scrollTo(0, scrollY)
-                                                  })
+                                                  setTimeout(() => {
+                                                    if (container) container.scrollTop = scrollTop
+                                                  }, 0)
                                                 }}
                                               >
                                                 編輯
@@ -3322,7 +3331,7 @@ export function PlansPage() {
                                                       multiple
                                                       className="h-full w-full md:w-[120px]"
                                                       onFilesSelected={async (files) => {
-                                                        const scrollY = window.scrollY
+                                                        const container = projectDetailScrollRef.current; const scrollTop = container?.scrollTop || 0
                                                         const validFiles = files.filter(file => {
                                                           const validation = validateFile(file, 'receipt')
                                                           return validation.valid
@@ -3336,7 +3345,7 @@ export function PlansPage() {
                                                             order: startOrder + idx,
                                                           }))
                                                           setEditExecAttachments([...editExecAttachments, ...newAttachments])
-                                                          requestAnimationFrame(() => window.scrollTo(0, scrollY))
+                                                          setTimeout(() => { if (container) container.scrollTop = scrollTop }, 0)
                                                         } catch (err) {
                                                           console.error('Upload failed:', err)
                                                         }
@@ -3350,7 +3359,7 @@ export function PlansPage() {
                                               <Button
                                                 size="sm"
                                                 onClick={async () => {
-                                                  const scrollY = window.scrollY
+                                                  const container = projectDetailScrollRef.current; const scrollTop = container?.scrollTop || 0
                                                   const textarea = document.getElementById(`edit-content-${execution.id}`) as HTMLTextAreaElement
                                                   const content = textarea?.value || ""
                                                   console.log("Saving execution:", execution.id, "Content:", content, "Attachments:", editExecAttachments)
@@ -3364,7 +3373,7 @@ export function PlansPage() {
                                                     console.log("Update result:", result)
                                                     await loadProjectExecutions(selectedProject.id)
                                                     setEditingExecutionId(null)
-                                                    requestAnimationFrame(() => window.scrollTo(0, scrollY))
+                                                    setTimeout(() => { if (container) container.scrollTop = scrollTop }, 0)
                                                   } catch (error) {
                                                     console.error("Failed to update execution:", error)
                                                     alert("更新失敗: " + (error instanceof Error ? error.message : String(error)))
@@ -3380,9 +3389,9 @@ export function PlansPage() {
                                                 size="sm"
                                                 variant="outline"
                                                 onClick={() => {
-                                                  const scrollY = window.scrollY
+                                                  const container = projectDetailScrollRef.current; const scrollTop = container?.scrollTop || 0
                                                   setEditingExecutionId(null)
-                                                  requestAnimationFrame(() => window.scrollTo(0, scrollY))
+                                                  setTimeout(() => { if (container) container.scrollTop = scrollTop }, 0)
                                                 }}
                                               >
                                                 取消
@@ -3787,7 +3796,7 @@ export function PlansPage() {
                                                   multiple
                                                   className="h-full w-full md:w-[180px]"
                                                   onFilesSelected={async (files) => {
-                                                    const scrollY = window.scrollY
+                                                    const container = projectDetailScrollRef.current; const scrollTop = container?.scrollTop || 0
                                                     const validFiles = files.filter(file => {
                                                       const validation = validateFile(file, 'receipt')
                                                       return validation.valid
@@ -3801,7 +3810,7 @@ export function PlansPage() {
                                                         order: startOrder + idx,
                                                       }))
                                                       setCommitteeAttachments([...committeeAttachments, ...newAttachments])
-                                                      requestAnimationFrame(() => window.scrollTo(0, scrollY))
+                                                      setTimeout(() => { if (container) container.scrollTop = scrollTop }, 0)
                                                     } catch (err) {
                                                       console.error('Upload failed:', err)
                                                     }
@@ -4064,7 +4073,7 @@ export function PlansPage() {
                                                       multiple
                                                       className="h-full w-full md:w-[150px]"
                                                       onFilesSelected={async (files) => {
-                                                        const scrollY = window.scrollY
+                                                        const container = projectDetailScrollRef.current; const scrollTop = container?.scrollTop || 0
                                                         const validFiles = files.filter(file => {
                                                           const validation = validateFile(file, 'receipt')
                                                           return validation.valid
@@ -4078,7 +4087,7 @@ export function PlansPage() {
                                                             order: startOrder + idx,
                                                           }))
                                                           setClosingAttachments([...closingAttachments, ...newAttachments])
-                                                          requestAnimationFrame(() => window.scrollTo(0, scrollY))
+                                                          setTimeout(() => { if (container) container.scrollTop = scrollTop }, 0)
                                                         } catch (err) {
                                                           console.error('Upload failed:', err)
                                                         }
@@ -4132,7 +4141,7 @@ export function PlansPage() {
                                                   multiple
                                                   className="h-full w-full md:w-[150px]"
                                                   onFilesSelected={async (files) => {
-                                                    const scrollY = window.scrollY
+                                                    const container = projectDetailScrollRef.current; const scrollTop = container?.scrollTop || 0
                                                     const validFiles = files.filter(file => {
                                                       const validation = validateFile(file, 'receipt')
                                                       return validation.valid
@@ -4146,7 +4155,7 @@ export function PlansPage() {
                                                         order: startOrder + idx,
                                                       }))
                                                       setInlineExecAttachments([...inlineExecAttachments, ...newAttachments])
-                                                      requestAnimationFrame(() => window.scrollTo(0, scrollY))
+                                                      setTimeout(() => { if (container) container.scrollTop = scrollTop }, 0)
                                                     } catch (err) {
                                                       console.error('Upload failed:', err)
                                                     }
@@ -4577,7 +4586,7 @@ export function PlansPage() {
         </div>
 
         {/* Mobile: Single column with view switching */}
-        <div className="md:hidden h-full w-full overflow-hidden">
+        <div className="md:hidden h-full w-full overflow-y-auto">
           {mobileView === "plans" && <PlansCards />}
           {mobileView === "projects" && <ProjectsColumn />}
           {mobileView === "detail" && <ProjectDetailColumn />}

@@ -22,7 +22,9 @@
       "Bash(grep:*)",
       "Bash(ls:*)",
       "Bash(find:*)",
-      "Bash(git config:*)"
+      "Bash(git config:*)",
+      "Bash(printf:*)",
+      "Bash(git credential-osxkeychain:*)"
     ]
   }
 }
