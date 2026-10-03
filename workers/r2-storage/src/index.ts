@@ -254,10 +254,11 @@ async function handleGetFile(request: Request, env: Env, corsHeaders: HeadersIni
 
   // Check for Range header (PDF.js uses range requests)
   const rangeHeader = request.headers.get('Range')
+  const parsedRange = rangeHeader ? parseRange(rangeHeader) : undefined
 
-  // For HEAD requests or range requests, we need object metadata first
-  const object = rangeHeader
-    ? await bucket.get(filePath, { range: parseRange(rangeHeader) })
+  // Fetch object with or without range
+  const object = parsedRange
+    ? await bucket.get(filePath, { range: parsedRange })
     : await bucket.get(filePath)
 
   if (!object) {
@@ -280,7 +281,7 @@ async function handleGetFile(request: Request, env: Env, corsHeaders: HeadersIni
   }
 
   // Handle Range request
-  if (rangeHeader && object.range) {
+  if (parsedRange && object.range) {
     const { offset, length } = object.range as { offset: number; length: number }
     headers.set('Content-Length', length.toString())
     headers.set('Content-Range', `bytes ${offset}-${offset + length - 1}/${object.size}`)
@@ -290,7 +291,14 @@ async function handleGetFile(request: Request, env: Env, corsHeaders: HeadersIni
   return new Response(object.body, { headers })
 }
 
-function parseRange(rangeHeader: string): { offset: number; length?: number } | undefined {
+function parseRange(rangeHeader: string): { offset: number; length?: number } | { suffix: number } | undefined {
+  // Handle suffix range: bytes=-N (last N bytes)
+  const suffixMatch = rangeHeader.match(/bytes=-(\d+)/)
+  if (suffixMatch) {
+    return { suffix: parseInt(suffixMatch[1], 10) }
+  }
+
+  // Handle standard range: bytes=N-M or bytes=N-
   const match = rangeHeader.match(/bytes=(\d+)-(\d*)/)
   if (!match) return undefined
 
