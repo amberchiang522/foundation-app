@@ -24,7 +24,7 @@ binding = "ATTACHMENTS"
 bucket_name = "foundation-attachments"
 
 [vars]
-# Comma-separated allowed origins for CORS
-ALLOWED_ORIGINS = "http://localhost:5173,http://localhost:3000"
+# Comma-separated allowed origins for CORS (* allows all origins for public file access)
+ALLOWED_ORIGINS = "*"
 # R2 public URL prefix (set this after enabling public access)
 R2_PUBLIC_URL = "https://pub-bb0cc54b7a1e4c16b7862672eb0221c9.r2.dev"
