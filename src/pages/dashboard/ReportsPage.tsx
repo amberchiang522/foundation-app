@@ -193,9 +193,9 @@ export function ReportsPage() {
       const progress = (p.workflow.filter((s) => s.status === "approved").length / p.workflow.length) * 100
 
       return {
-        專案名稱: p.name,
+        個案名稱: p.name,
         所屬計畫: plan?.name || "",
-        專案類型: p.projectType,
+        個案類型: p.projectType,
         預算金額: p.budgetAmount,
         狀態: p.status === "active" ? "進行中" : p.status === "completed" ? "已完成" : "已封存",
         進度百分比: `${Math.round(progress)}%`,
@@ -204,7 +204,7 @@ export function ReportsPage() {
       }
     })
 
-    downloadCSV(exportData, "專案撥款統計")
+    downloadCSV(exportData, "個案撥款統計")
   }
 
   const exportServiceHours = () => {
@@ -243,7 +243,7 @@ export function ReportsPage() {
   if (isLoading) {
     return (
       <div className="space-y-6">
-        <h1 className="text-3xl font-bold">報表中心</h1>
+        <h1 className="text-xl font-bold">報表中心</h1>
         <Card>
           <CardContent className="py-12">
             <div className="text-center text-muted-foreground">載入中...</div>
@@ -256,7 +256,7 @@ export function ReportsPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-3xl font-bold">報表中心</h1>
+        <h1 className="text-xl font-bold">報表中心</h1>
         <p className="text-muted-foreground">查看統計數據與匯出報表</p>
       </div>
 
@@ -292,7 +292,7 @@ export function ReportsPage() {
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium">專案統計</CardTitle>
+            <CardTitle className="text-sm font-medium">個案統計</CardTitle>
             <FolderKanban className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
@@ -391,9 +391,9 @@ export function ReportsPage() {
           <CardHeader>
             <div className="flex items-center gap-2">
               <FolderKanban className="h-5 w-5" />
-              <CardTitle>專案撥款統計</CardTitle>
+              <CardTitle>個案撥款統計</CardTitle>
             </div>
-            <CardDescription>匯出專案與預算資料</CardDescription>
+            <CardDescription>匯出個案與預算資料</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="flex items-center gap-4">
@@ -402,7 +402,7 @@ export function ReportsPage() {
                   <SelectValue placeholder="篩選條件" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">全部專案</SelectItem>
+                  <SelectItem value="all">全部個案</SelectItem>
                   <SelectItem value="active">進行中</SelectItem>
                   <SelectItem value="completed">已完成</SelectItem>
                 </SelectContent>
@@ -413,7 +413,7 @@ export function ReportsPage() {
               </Button>
             </div>
             <p className="text-sm text-muted-foreground">
-              包含：專案資訊、預算金額、流程進度
+              包含：個案資訊、預算金額、流程進度
             </p>
           </CardContent>
         </Card>
@@ -497,7 +497,7 @@ export function ReportsPage() {
             <div className="flex items-center gap-3">
               <FolderKanban className="h-8 w-8 text-purple-500" />
               <div>
-                <p className="text-sm text-muted-foreground">平均專案預算</p>
+                <p className="text-sm text-muted-foreground">平均個案預算</p>
                 <p className="text-lg font-semibold">
                   $
                   {stats?.totalProjects

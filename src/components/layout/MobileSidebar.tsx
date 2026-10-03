@@ -1,3 +1,4 @@
+import { useEffect } from "react"
 import { Link, useLocation } from "react-router-dom"
 import { cn } from "@/lib/utils"
 import { ScrollArea } from "@/components/ui/scroll-area"
@@ -50,18 +51,31 @@ const superAdminNavItems = [
 export function MobileSidebar({ isOpen, onClose, isAdmin = false, isSuperAdmin = false }: MobileSidebarProps) {
   const location = useLocation()
 
+  // Lock body scroll when menu is open
+  useEffect(() => {
+    if (isOpen) {
+      document.body.style.overflow = 'hidden'
+    } else {
+      document.body.style.overflow = ''
+    }
+    return () => {
+      document.body.style.overflow = ''
+    }
+  }, [isOpen])
+
   if (!isOpen) return null
 
   return (
     <>
       {/* Overlay */}
       <div
-        className="fixed inset-0 z-50 bg-black/50 md:hidden"
+        className="fixed inset-0 z-[60] bg-black/50 md:hidden"
         onClick={onClose}
+        onTouchEnd={onClose}
       />
 
       {/* Sidebar */}
-      <aside className="fixed inset-y-0 left-0 z-50 w-64 bg-background md:hidden">
+      <aside className="fixed inset-y-0 left-0 z-[70] w-64 bg-background md:hidden shadow-xl animate-in slide-in-from-left duration-200">
         <div className="flex items-center justify-between p-6 border-b">
           <Link to="/dashboard" className="inline-block" onClick={onClose}>
             <img

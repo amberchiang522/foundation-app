@@ -84,7 +84,7 @@ export function MyServicePage() {
   if (isLoading) {
     return (
       <div className="space-y-6">
-        <h1 className="text-3xl font-bold">服務時數</h1>
+        <h1 className="text-xl font-bold">服務時數</h1>
         <div className="grid gap-4 md:grid-cols-3">
           {[1, 2, 3].map((i) => (
             <Card key={i}>
@@ -101,7 +101,7 @@ export function MyServicePage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-3xl font-bold">服務時數</h1>
+        <h1 className="text-xl font-bold">服務時數</h1>
         <p className="text-muted-foreground">您的志工服務紀錄與累計時數</p>
       </div>
 

@@ -159,7 +159,7 @@ export const mockWorkflowTemplates: WorkflowTemplate[] = [
   {
     id: 'template-1',
     name: '標準審核流程',
-    description: '適用於一般專案',
+    description: '適用於一般個案',
     steps: [
       { id: 'step-1', name: '提案', type: 'status' },
       { id: 'step-2', name: '主管審核', type: 'approval', approverType: 'tag', approverTagId: 'tag-2' },
@@ -192,7 +192,7 @@ export const mockProjects: Project[] = [
     id: 'project-1',
     planId: 'plan-1',
     name: '楊五集急難救助',
-    description: '楊五集地區急難救助專案',
+    description: '楊五集地區急難救助個案',
     projectType: '急難救助',
     budgetAmount: 30000,
     workflow: [

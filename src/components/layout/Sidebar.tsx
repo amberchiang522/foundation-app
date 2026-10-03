@@ -1,4 +1,4 @@
-import { useState, useRef } from "react"
+import { useState } from "react"
 import { Link, useLocation } from "react-router-dom"
 import { cn } from "@/lib/utils"
 import { ScrollArea } from "@/components/ui/scroll-area"
@@ -50,148 +50,122 @@ const superAdminNavItems = [
 export function Sidebar({ isAdmin = false, isSuperAdmin = false }: SidebarProps) {
   const location = useLocation()
   const [isExpanded, setIsExpanded] = useState(false)
-  const openTimeoutRef = useRef<NodeJS.Timeout | null>(null)
-  const closeTimeoutRef = useRef<NodeJS.Timeout | null>(null)
-
-  const handleMouseEnter = () => {
-    // 清除關閉定時器
-    if (closeTimeoutRef.current) {
-      clearTimeout(closeTimeoutRef.current)
-      closeTimeoutRef.current = null
-    }
-    // 1秒延遲後展開
-    openTimeoutRef.current = setTimeout(() => {
-      setIsExpanded(true)
-    }, 1000)
-  }
-
-  const handleMouseLeave = () => {
-    // 清除開啟定時器
-    if (openTimeoutRef.current) {
-      clearTimeout(openTimeoutRef.current)
-      openTimeoutRef.current = null
-    }
-    // 1秒延遲後收起
-    closeTimeoutRef.current = setTimeout(() => {
-      setIsExpanded(false)
-    }, 1000)
-  }
 
   return (
-    <aside
-      className={cn(
-        "hidden md:flex flex-col border-r bg-background transition-all duration-300 ease-in-out overflow-hidden",
-        isExpanded ? "w-64" : "w-14"
-      )}
-      onMouseEnter={handleMouseEnter}
-      onMouseLeave={handleMouseLeave}
-    >
-      <div className={cn("p-3 transition-all duration-300", isExpanded && "p-6")}>
-        <Link to="/dashboard" className="inline-block">
-          <img
-            src="/logo.png"
-            alt="鴻勁公益慈善基金會"
-            className={cn(
-              "w-auto object-contain transition-all duration-300",
-              isExpanded ? "h-10" : "h-8"
+    <>
+      {/* Fixed width placeholder to maintain layout */}
+      <div className="hidden md:block w-12 shrink-0" />
+
+      {/* Actual sidebar - positioned fixed as overlay */}
+      <aside
+        className={cn(
+          "hidden md:flex flex-col border-r bg-background transition-all duration-150 ease-out overflow-hidden",
+          "fixed left-0 top-14 h-[calc(100vh-3.5rem)] z-40",
+          isExpanded ? "w-48 shadow-xl" : "w-12"
+        )}
+        onMouseEnter={() => setIsExpanded(true)}
+        onMouseLeave={() => setIsExpanded(false)}
+      >
+        <ScrollArea className="flex-1 py-2">
+          <nav className="space-y-1 px-2">
+            {volunteerNavItems.map((item) => {
+              const isActive = location.pathname === item.href
+              return (
+                <Link
+                  key={item.href}
+                  to={item.href}
+                  onClick={() => setIsExpanded(false)}
+                  className={cn(
+                    "flex items-center rounded-md h-8 transition-colors",
+                    isActive
+                      ? "bg-primary text-primary-foreground"
+                      : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                  )}
+                  title={!isExpanded ? item.label : undefined}
+                >
+                  {/* Icon - fixed width */}
+                  <div className="w-8 h-8 flex items-center justify-center shrink-0">
+                    <item.icon className="h-4 w-4" />
+                  </div>
+                  {/* Label - only visible when expanded */}
+                  <span className={cn(
+                    "text-sm whitespace-nowrap overflow-hidden transition-all duration-150",
+                    isExpanded ? "opacity-100 w-auto pr-3" : "opacity-0 w-0"
+                  )}>
+                    {item.label}
+                  </span>
+                </Link>
+              )
+            })}
+
+            {isAdmin && (
+              <>
+                <div className="my-3 border-t mx-1" />
+                {adminNavItems.map((item) => {
+                  const isActive = location.pathname === item.href
+                  return (
+                    <Link
+                      key={item.href}
+                      to={item.href}
+                      onClick={() => setIsExpanded(false)}
+                      className={cn(
+                        "flex items-center rounded-md h-8 transition-colors",
+                        isActive
+                          ? "bg-primary text-primary-foreground"
+                          : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                      )}
+                      title={!isExpanded ? item.label : undefined}
+                    >
+                      <div className="w-8 h-8 flex items-center justify-center shrink-0">
+                        <item.icon className="h-4 w-4" />
+                      </div>
+                      <span className={cn(
+                        "text-sm whitespace-nowrap overflow-hidden transition-all duration-150",
+                        isExpanded ? "opacity-100 w-auto pr-3" : "opacity-0 w-0"
+                      )}>
+                        {item.label}
+                      </span>
+                    </Link>
+                  )
+                })}
+              </>
             )}
-            onError={(e) => {
-              (e.target as HTMLImageElement).style.display = 'none'
-            }}
-          />
-        </Link>
-      </div>
-      <ScrollArea className={cn("flex-1 px-2 transition-all duration-300", isExpanded && "px-3")}>
-        <nav className="space-y-1">
-          {volunteerNavItems.map((item) => (
-            <Link
-              key={item.href}
-              to={item.href}
-              className={cn(
-                "flex items-center gap-3 rounded-lg px-2.5 py-2 text-sm transition-colors",
-                location.pathname === item.href
-                  ? "bg-primary text-primary-foreground"
-                  : "text-muted-foreground hover:bg-muted hover:text-foreground"
-              )}
-              title={item.label}
-            >
-              <item.icon className="h-4 w-4 shrink-0" />
-              <span className={cn(
-                "transition-opacity duration-300 whitespace-nowrap overflow-hidden",
-                isExpanded ? "opacity-100" : "opacity-0"
-              )}>
-                {item.label}
-              </span>
-            </Link>
-          ))}
 
-          {isAdmin && (
-            <>
-              <div className="my-4 border-t" />
-              <p className={cn(
-                "px-3 py-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider transition-opacity duration-300 whitespace-nowrap",
-                isExpanded ? "opacity-100" : "opacity-0"
-              )}>
-                管理功能
-              </p>
-              {adminNavItems.map((item) => (
-                <Link
-                  key={item.href}
-                  to={item.href}
-                  className={cn(
-                    "flex items-center gap-3 rounded-lg px-2.5 py-2 text-sm transition-colors",
-                    location.pathname === item.href
-                      ? "bg-primary text-primary-foreground"
-                      : "text-muted-foreground hover:bg-muted hover:text-foreground"
-                  )}
-                  title={item.label}
-                >
-                  <item.icon className="h-4 w-4 shrink-0" />
-                  <span className={cn(
-                    "transition-opacity duration-300 whitespace-nowrap overflow-hidden",
-                    isExpanded ? "opacity-100" : "opacity-0"
-                  )}>
-                    {item.label}
-                  </span>
-                </Link>
-              ))}
-            </>
-          )}
-
-          {isSuperAdmin && (
-            <>
-              <div className="my-4 border-t" />
-              <p className={cn(
-                "px-3 py-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider transition-opacity duration-300 whitespace-nowrap",
-                isExpanded ? "opacity-100" : "opacity-0"
-              )}>
-                超級管理
-              </p>
-              {superAdminNavItems.map((item) => (
-                <Link
-                  key={item.href}
-                  to={item.href}
-                  className={cn(
-                    "flex items-center gap-3 rounded-lg px-2.5 py-2 text-sm transition-colors",
-                    location.pathname === item.href
-                      ? "bg-primary text-primary-foreground"
-                      : "text-muted-foreground hover:bg-muted hover:text-foreground"
-                  )}
-                  title={item.label}
-                >
-                  <item.icon className="h-4 w-4 shrink-0" />
-                  <span className={cn(
-                    "transition-opacity duration-300 whitespace-nowrap overflow-hidden",
-                    isExpanded ? "opacity-100" : "opacity-0"
-                  )}>
-                    {item.label}
-                  </span>
-                </Link>
-              ))}
-            </>
-          )}
-        </nav>
-      </ScrollArea>
-    </aside>
+            {isSuperAdmin && (
+              <>
+                <div className="my-3 border-t mx-1" />
+                {superAdminNavItems.map((item) => {
+                  const isActive = location.pathname === item.href
+                  return (
+                    <Link
+                      key={item.href}
+                      to={item.href}
+                      onClick={() => setIsExpanded(false)}
+                      className={cn(
+                        "flex items-center rounded-md h-8 transition-colors",
+                        isActive
+                          ? "bg-primary text-primary-foreground"
+                          : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                      )}
+                      title={!isExpanded ? item.label : undefined}
+                    >
+                      <div className="w-8 h-8 flex items-center justify-center shrink-0">
+                        <item.icon className="h-4 w-4" />
+                      </div>
+                      <span className={cn(
+                        "text-sm whitespace-nowrap overflow-hidden transition-all duration-150",
+                        isExpanded ? "opacity-100 w-auto pr-3" : "opacity-0 w-0"
+                      )}>
+                        {item.label}
+                      </span>
+                    </Link>
+                  )
+                })}
+              </>
+            )}
+          </nav>
+        </ScrollArea>
+      </aside>
+    </>
   )
 }

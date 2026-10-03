@@ -161,7 +161,7 @@ export function VolunteersPage() {
   if (isLoading) {
     return (
       <div className="space-y-6">
-        <h1 className="text-3xl font-bold">志工管理</h1>
+        <h1 className="text-xl font-bold">志工管理</h1>
         <Card>
           <CardContent className="py-12">
             <div className="text-center text-muted-foreground">載入中...</div>
@@ -174,7 +174,7 @@ export function VolunteersPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-3xl font-bold">志工管理</h1>
+        <h1 className="text-xl font-bold">志工管理</h1>
         <p className="text-muted-foreground">管理所有審核通過的志工</p>
       </div>
 

@@ -104,7 +104,7 @@ export function ApplicationsPage() {
   if (isLoading) {
     return (
       <div className="space-y-6">
-        <h1 className="text-3xl font-bold">志工申請審核</h1>
+        <h1 className="text-xl font-bold">志工申請審核</h1>
         <Card>
           <CardContent className="py-12">
             <div className="text-center text-muted-foreground">載入中...</div>
@@ -117,7 +117,7 @@ export function ApplicationsPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-3xl font-bold">志工申請審核</h1>
+        <h1 className="text-xl font-bold">志工申請審核</h1>
         <p className="text-muted-foreground">審核志工申請表單</p>
       </div>
 

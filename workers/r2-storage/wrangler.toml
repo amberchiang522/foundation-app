@@ -1,0 +1,30 @@
+name = "foundation-r2-storage"
+main = "src/index.ts"
+compatibility_date = "2024-01-01"
+
+# R2 Bucket Bindings
+[[r2_buckets]]
+binding = "AVATARS"
+bucket_name = "foundation-avatars"
+
+[[r2_buckets]]
+binding = "ACTIVITIES"
+bucket_name = "foundation-activities"
+
+[[r2_buckets]]
+binding = "PROJECTS"
+bucket_name = "foundation-projects"
+
+[[r2_buckets]]
+binding = "PLANS"
+bucket_name = "foundation-plans"
+
+[[r2_buckets]]
+binding = "ATTACHMENTS"
+bucket_name = "foundation-attachments"
+
+[vars]
+# Comma-separated allowed origins for CORS
+ALLOWED_ORIGINS = "http://localhost:5173,http://localhost:3000"
+# R2 public URL prefix (set this after enabling public access)
+R2_PUBLIC_URL = "https://pub-bb0cc54b7a1e4c16b7862672eb0221c9.r2.dev"

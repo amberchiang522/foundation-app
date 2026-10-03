@@ -98,7 +98,7 @@ export function ProfilePage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-3xl font-bold">個人資料</h1>
+        <h1 className="text-xl font-bold">個人資料</h1>
         <p className="text-muted-foreground">查看與管理您的個人資訊</p>
       </div>
 

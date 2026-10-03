@@ -83,7 +83,7 @@ export function DashboardPage() {
   if (isLoading) {
     return (
       <div className="space-y-6">
-        <h1 className="text-3xl font-bold">儀表板</h1>
+        <h1 className="text-xl font-bold">儀表板</h1>
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
           {[1, 2, 3, 4].map((i) => (
             <Card key={i}>
@@ -101,124 +101,90 @@ export function DashboardPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold">儀表板</h1>
+          <h1 className="text-xl font-bold">儀表板</h1>
           <p className="text-muted-foreground">
             歡迎回來，{user?.name}
           </p>
         </div>
       </div>
 
-      {/* Volunteer Stats Cards */}
+      {/* Admin Dashboard */}
       {isAdmin ? (
         <>
-          {/* Admin View */}
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between pb-2">
-                <CardTitle className="text-sm font-medium">志工總數</CardTitle>
-                <Users className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{stats?.volunteers.total || 0}</div>
-                <p className="text-xs text-muted-foreground">
-                  青年 {stats?.volunteers.youth || 0} / 社會 {stats?.volunteers.social || 0}
-                </p>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between pb-2">
-                <CardTitle className="text-sm font-medium">待審核申請</CardTitle>
-                <FileCheck className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{stats?.volunteers.pending || 0}</div>
-                <Link
-                  to="/dashboard/applications"
-                  className="text-xs text-primary hover:underline inline-flex items-center gap-1"
-                >
-                  前往審核 <ArrowRight className="h-3 w-3" />
-                </Link>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between pb-2">
-                <CardTitle className="text-sm font-medium">進行中活動</CardTitle>
-                <Calendar className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{stats?.activities.upcoming || 0}</div>
-                <p className="text-xs text-muted-foreground">
-                  共 {stats?.activities.total || 0} 場活動
-                </p>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between pb-2">
-                <CardTitle className="text-sm font-medium">進行中專案</CardTitle>
-                <Briefcase className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{stats?.projects.activeProjects || 0}</div>
-                <p className="text-xs text-muted-foreground">
-                  {stats?.projects.activePlans || 0} 個計畫
-                </p>
-              </CardContent>
-            </Card>
-          </div>
-
-          {/* Quick Actions for Admin */}
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+            {/* 志工 Card */}
             <Card>
-              <CardHeader>
-                <CardTitle className="text-lg flex items-center gap-2">
-                  <FileCheck className="h-5 w-5" />
-                  志工申請
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Users className="h-5 w-5" />
+                  志工
                 </CardTitle>
               </CardHeader>
-              <CardContent className="space-y-2">
-                <p className="text-sm text-muted-foreground">
-                  {stats?.volunteers.pending || 0} 筆待審核
-                </p>
-                <Button asChild size="sm" className="w-full">
-                  <Link to="/dashboard/applications">審核申請</Link>
-                </Button>
+              <CardContent className="space-y-4">
+                <div>
+                  <div className="text-3xl font-bold">{stats?.volunteers.total || 0} 人</div>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    青年 {stats?.volunteers.youth || 0} / 社會 {stats?.volunteers.social || 0}
+                  </p>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm">
+                    {(stats?.volunteers.pending || 0) > 0 ? (
+                      <span className="text-orange-600 font-medium">{stats?.volunteers.pending} 筆待審核</span>
+                    ) : (
+                      <span className="text-muted-foreground">無待審核申請</span>
+                    )}
+                  </span>
+                  <Button asChild size="sm">
+                    <Link to="/dashboard/applications">審核申請</Link>
+                  </Button>
+                </div>
               </CardContent>
             </Card>
 
+            {/* 活動 Card */}
             <Card>
-              <CardHeader>
-                <CardTitle className="text-lg flex items-center gap-2">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base flex items-center gap-2">
                   <Calendar className="h-5 w-5" />
-                  活動管理
+                  活動
                 </CardTitle>
               </CardHeader>
-              <CardContent className="space-y-2">
-                <p className="text-sm text-muted-foreground">
-                  管理志工活動與報名
-                </p>
-                <Button asChild size="sm" className="w-full">
-                  <Link to="/dashboard/activities">管理活動</Link>
-                </Button>
+              <CardContent className="space-y-4">
+                <div>
+                  <div className="text-3xl font-bold">{stats?.activities.total || 0} 場</div>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    進行中 {stats?.activities.upcoming || 0} / 已結束 {stats?.activities.completed || 0}
+                  </p>
+                </div>
+                <div className="flex items-center justify-end">
+                  <Button asChild size="sm">
+                    <Link to="/dashboard/activities">管理活動</Link>
+                  </Button>
+                </div>
               </CardContent>
             </Card>
 
+            {/* 計畫個案 Card */}
             <Card>
-              <CardHeader>
-                <CardTitle className="text-lg flex items-center gap-2">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base flex items-center gap-2">
                   <FolderKanban className="h-5 w-5" />
-                  計畫專案
+                  計畫個案
                 </CardTitle>
               </CardHeader>
-              <CardContent className="space-y-2">
-                <p className="text-sm text-muted-foreground">
-                  追蹤計畫與專案進度
-                </p>
-                <Button asChild size="sm" className="w-full">
-                  <Link to="/dashboard/plans">管理計畫</Link>
-                </Button>
+              <CardContent className="space-y-4">
+                <div>
+                  <div className="text-3xl font-bold">{stats?.projects.activeProjects || 0} 個案</div>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    進行中 · {stats?.projects.activePlans || 0} 個計畫
+                  </p>
+                </div>
+                <div className="flex items-center justify-end">
+                  <Button asChild size="sm">
+                    <Link to="/dashboard/plans">管理計畫</Link>
+                  </Button>
+                </div>
               </CardContent>
             </Card>
           </div>

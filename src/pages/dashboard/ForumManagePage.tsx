@@ -222,7 +222,7 @@ export function ForumManagePage() {
     <div className="space-y-6">
       {/* Header */}
       <div>
-        <h1 className="text-2xl font-bold">討論管理</h1>
+        <h1 className="text-lg font-bold">討論管理</h1>
         <p className="text-muted-foreground">審核及管理志工討論內容</p>
       </div>
 

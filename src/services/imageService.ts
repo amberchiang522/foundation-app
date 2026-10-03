@@ -1,13 +1,25 @@
 import imageCompression from 'browser-image-compression'
 import { useSupabase } from '@/lib/supabase'
 import { supabaseImageService } from './supabase/imageService'
+import { r2ImageService } from './r2/imageService'
+
+// Storage provider type
+export type StorageProvider = 'mock' | 'supabase' | 'r2'
+
+// Get storage provider from environment
+export const storageProvider: StorageProvider = (() => {
+  const provider = import.meta.env.VITE_STORAGE_PROVIDER as string
+  if (provider === 'r2') return 'r2'
+  if (provider === 'supabase' || useSupabase) return 'supabase'
+  return 'mock'
+})()
 
 // Image Types
 export type ImageType =
   | 'activity-cover'      // 活動封面圖
   | 'activity-content'    // 活動內容圖片
   | 'volunteer-avatar'    // 志工大頭照
-  | 'project-result'      // 專案成果圖
+  | 'project-result'      // 個案成果圖
   | 'receipt'             // 收據單據
   | 'event-review'        // 活動回顧圖片
   | 'plan-cover'          // 計畫封面圖
@@ -87,6 +99,10 @@ export interface ImageUploadResult {
   fileSize: number
   mimeType: string
   order: number
+  // For deferred uploads: indicates this is a local preview, not yet uploaded
+  pending?: boolean
+  // The original file, stored for deferred upload
+  file?: File
 }
 
 export interface ImageService {
@@ -254,6 +270,128 @@ class MockImageService implements ImageService {
   }
 }
 
-// Export the appropriate service based on feature flag
+// Export the appropriate service based on storage provider
 const mockImageService = new MockImageService()
-export const imageService = useSupabase ? supabaseImageService : mockImageService
+
+function getImageService(): ImageService {
+  switch (storageProvider) {
+    case 'r2':
+      return r2ImageService
+    case 'supabase':
+      return supabaseImageService
+    default:
+      return mockImageService
+  }
+}
+
+export const imageService = getImageService()
+
+// ============ Deferred Upload Support ============
+
+/**
+ * Create a pending upload result for deferred uploading.
+ * This stores the file locally with a blob URL for preview.
+ * Call `finalizePendingUploads` to actually upload the files.
+ */
+export async function createPendingUpload(file: File, type: ImageType): Promise<ImageUploadResult> {
+  const validation = validateFile(file, type)
+  if (!validation.valid) {
+    throw new Error(validation.error)
+  }
+
+  const id = `pending_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`
+  const originalUrl = URL.createObjectURL(file)
+
+  // Generate thumbnail for preview
+  let thumbnailUrl = originalUrl
+  if (file.type.startsWith('image/')) {
+    try {
+      const config = imageConfig[type]
+      const thumbnailFile = await imageCompression(file, {
+        maxSizeMB: 0.1,
+        maxWidthOrHeight: Math.max(config.thumbnailSize.width, config.thumbnailSize.height || config.thumbnailSize.width),
+        useWebWorker: true,
+      })
+      thumbnailUrl = URL.createObjectURL(thumbnailFile)
+    } catch {
+      // Use original as thumbnail if compression fails
+    }
+  }
+
+  return {
+    id,
+    originalUrl,
+    thumbnailUrl,
+    fileName: file.name,
+    fileSize: file.size,
+    mimeType: file.type,
+    order: 0,
+    pending: true,
+    file,
+  }
+}
+
+/**
+ * Create multiple pending uploads
+ */
+export async function createPendingUploads(files: File[], type: ImageType): Promise<ImageUploadResult[]> {
+  const config = imageConfig[type]
+  if (files.length > config.maxCount) {
+    throw new Error(`最多只能上傳 ${config.maxCount} 張圖片`)
+  }
+
+  const results: ImageUploadResult[] = []
+  for (let i = 0; i < files.length; i++) {
+    const result = await createPendingUpload(files[i], type)
+    result.order = i
+    results.push(result)
+  }
+  return results
+}
+
+/**
+ * Finalize pending uploads - actually upload files to storage.
+ * Call this when saving the form.
+ * Returns new ImageUploadResults with real URLs.
+ */
+export async function finalizePendingUploads(
+  images: ImageUploadResult[],
+  type: ImageType
+): Promise<ImageUploadResult[]> {
+  const results: ImageUploadResult[] = []
+
+  for (const image of images) {
+    if (image.pending && image.file) {
+      // Upload the file
+      const uploaded = await imageService.upload(image.file, type)
+      uploaded.order = image.order
+      results.push(uploaded)
+
+      // Clean up blob URLs
+      URL.revokeObjectURL(image.originalUrl)
+      if (image.thumbnailUrl !== image.originalUrl) {
+        URL.revokeObjectURL(image.thumbnailUrl)
+      }
+    } else {
+      // Already uploaded, keep as-is
+      results.push(image)
+    }
+  }
+
+  return results
+}
+
+/**
+ * Clean up pending uploads (revoke blob URLs).
+ * Call this when canceling/closing a form without saving.
+ */
+export function cleanupPendingUploads(images: ImageUploadResult[]): void {
+  for (const image of images) {
+    if (image.pending) {
+      URL.revokeObjectURL(image.originalUrl)
+      if (image.thumbnailUrl !== image.originalUrl) {
+        URL.revokeObjectURL(image.thumbnailUrl)
+      }
+    }
+  }
+}

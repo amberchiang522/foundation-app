@@ -110,8 +110,14 @@ export function PlansPage() {
   // Flow view project modal state
   const [flowProjectModal, setFlowProjectModal] = useState<Project | null>(null)
 
+  // Payment tracking checkboxes state
+  const [checkedPayments, setCheckedPayments] = useState<Set<string>>(new Set())
+
   // Ref for project detail scroll container
   const projectDetailScrollRef = useRef<HTMLDivElement>(null)
+  // Ref to save scroll position before opening dialogs
+  const savedScrollPositionRef = useRef<number>(0)
+  // Ref to save scroll position for step editing
 
   // Clear flowProjectModal when selectedProject is cleared or viewMode changes
   useEffect(() => {
@@ -178,7 +184,7 @@ export function PlansPage() {
     budgetAmount: 0,
     organizationId: "",
     sourceType: "個人" as "個人" | "機構" | "董事",
-    projectNumber: "",  // 專案編號
+    projectNumber: "",  // 個案編號
     planId: "",  // 計畫ID（流程模式新增時使用）
   })
   const [firstStepAttachments, setFirstStepAttachments] = useState<ImageUploadResult[]>([])
@@ -267,6 +273,7 @@ export function PlansPage() {
   // Sub-tasks inline input (per step)
   const [subTaskInputs, setSubTaskInputs] = useState<Record<number, string>>({})
   const [subTaskAttachmentReq, setSubTaskAttachmentReq] = useState<Record<number, boolean>>({})
+
 
   useEffect(() => {
     loadData()
@@ -526,7 +533,7 @@ export function PlansPage() {
     if (!plan) return
 
     const shouldSync = confirm(
-      `確定要將此專案的流程同步至計畫「${plan.name}」的最新流程嗎？\n（已完成的步驟狀態會保留）`
+      `確定要將此個案的流程同步至計畫「${plan.name}」的最新流程嗎？\n（已完成的步驟狀態會保留）`
     )
 
     if (!shouldSync) return
@@ -633,7 +640,7 @@ export function PlansPage() {
     }
 
     if (!projectFormData.name) {
-      alert("請填寫專案名稱")
+      alert("請填寫個案名稱")
       return
     }
 
@@ -734,7 +741,7 @@ export function PlansPage() {
   }
 
   const handleArchiveProject = async (project: Project) => {
-    if (!confirm("確定要封存此專案嗎？")) return
+    if (!confirm("確定要封存此個案嗎？")) return
 
     try {
       await projectService.updateProject(project.id, { status: "archived" })
@@ -749,7 +756,7 @@ export function PlansPage() {
   }
 
   const handleRestoreProject = async (project: Project) => {
-    if (!confirm("確定要還原此專案嗎？專案將重置到第一步流程重新開始。")) return
+    if (!confirm("確定要還原此個案嗎？個案將重置到第一步流程重新開始。")) return
 
     try {
       // Reset workflow to first step
@@ -779,7 +786,7 @@ export function PlansPage() {
   }
 
   const handleDeleteProject = async (project: Project) => {
-    if (!confirm(`確定要永久刪除專案「${project.name}」嗎？此操作無法復原。`)) return
+    if (!confirm(`確定要永久刪除個案「${project.name}」嗎？此操作無法復原。`)) return
 
     try {
       await projectService.deleteProject(project.id)
@@ -1107,11 +1114,11 @@ export function PlansPage() {
 
   // Plans Cards Component (Top Section) - Only shows when no plan is selected
   const PlansCards = () => {
-    // 取得所有進行中的專案，按步驟分組
+    // 取得所有進行中的個案，按步驟分組
     const activeProjects = projects.filter(p => p.status === 'active')
     const completedProjects = projects.filter(p => p.status === 'completed')
 
-    // 按當前步驟分組專案
+    // 按當前步驟分組個案
     const getProjectsByStep = (stepName: string) => {
       return activeProjects.filter(p => {
         const currentStepObj = p.workflow[p.currentStep]
@@ -1120,7 +1127,7 @@ export function PlansPage() {
     }
 
     return (
-      <div className="p-2 md:p-4 flex-1 overflow-x-auto overflow-y-auto min-w-0 pb-4" style={{ WebkitOverflowScrolling: 'touch' }}>
+      <div className="p-2 md:p-4 md:flex-1 md:overflow-x-auto md:overflow-y-auto min-w-0 pb-4" style={{ WebkitOverflowScrolling: 'touch' }}>
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3 md:mb-4">
           <div className="flex items-center gap-2 md:gap-3">
@@ -1195,26 +1202,22 @@ export function PlansPage() {
                       </div>
                       {/* Content - 67% height */}
                       <div className="p-3 flex-1 flex flex-col min-h-0">
-                        {/* Title */}
-                        <h3 className="font-semibold text-sm line-clamp-2">{plan.name}</h3>
-                        {/* Badges */}
-                        <div className="flex items-center gap-1.5 mt-2 flex-wrap">
-                          <Badge variant="secondary" className="text-xs px-1.5 py-0">
-                            {plan.type}
-                          </Badge>
+                        {/* Title + Badge */}
+                        <div className="flex items-start gap-1.5">
+                          <h3 className="font-semibold text-sm line-clamp-1 flex-1">{plan.name}</h3>
                           {activeCount > 0 && (
-                            <Badge variant="default" className="text-xs px-1.5 py-0">
-                              {activeCount} 進行中
+                            <Badge variant="default" className="text-[10px] px-1 py-0 shrink-0">
+                              {activeCount}
                             </Badge>
                           )}
                         </div>
                         {/* Description */}
-                        <p className="text-xs text-muted-foreground mt-2 line-clamp-3 flex-1 whitespace-pre-line">
+                        <p className="text-xs text-muted-foreground mt-1.5 line-clamp-4 flex-1 whitespace-pre-line">
                           {plan.description || "無描述"}
                         </p>
-                        {/* Project count */}
-                        <p className="text-xs text-muted-foreground mb-2">
-                          {projectCount} 個專案
+                        {/* Desktop: Project stats */}
+                        <p className="hidden md:block text-xs text-muted-foreground mb-2">
+                          {activeCount} 進行中 · 共 {projectCount} 個案
                         </p>
                         {/* View button */}
                         <Button
@@ -1248,13 +1251,13 @@ export function PlansPage() {
 
         {/* Flow View - Kanban style by workflow steps */}
         {viewMode === 'flow' && (
-          <div className="flex gap-2 md:gap-4 overflow-x-auto pb-4 min-w-0 w-full">
+          <div className="flex gap-2 md:gap-4 overflow-x-auto md:overflow-visible pb-4 min-w-0 w-full min-h-[50vh]" style={{ WebkitOverflowScrolling: 'touch' }}>
             {workflowStepNames.map((stepName, stepIdx) => {
               const stepProjects = getProjectsByStep(stepName)
               return (
                 <div
                   key={stepName}
-                  className="flex-shrink-0 w-40 sm:w-56 md:w-72 bg-muted/30 rounded-lg flex flex-col max-h-[calc(100vh-180px)] md:max-h-[calc(100vh-200px)]"
+                  className="flex-shrink-0 w-40 sm:w-56 md:flex-1 md:flex-shrink md:min-w-0 bg-muted/30 rounded-lg flex flex-col max-h-[calc(100vh-180px)] md:max-h-[calc(100vh-200px)]"
                 >
                   {/* Column Header */}
                   <div className="p-2 md:p-3 border-b bg-muted/50 rounded-t-lg">
@@ -1279,12 +1282,12 @@ export function PlansPage() {
                         onClick={() => openProjectForm()}
                       >
                         <Plus className="h-3 w-3 md:h-4 md:w-4" />
-                        <span className="text-xs md:text-sm">新增專案</span>
+                        <span className="text-xs md:text-sm">新增個案</span>
                       </div>
                     )}
                     {stepProjects.length === 0 && stepIdx !== 0 ? (
                       <div className="text-center text-muted-foreground text-xs py-4">
-                        無專案
+                        無個案
                       </div>
                     ) : (
                       stepProjects.map((project) => {
@@ -1320,7 +1323,7 @@ export function PlansPage() {
               )
             })}
             {/* Completed Column */}
-            <div className="flex-shrink-0 w-40 sm:w-56 md:w-72 bg-green-50 dark:bg-green-950/20 rounded-lg flex flex-col max-h-[calc(100vh-180px)] md:max-h-[calc(100vh-200px)]">
+            <div className="flex-shrink-0 w-40 sm:w-56 md:flex-1 md:flex-shrink md:min-w-0 bg-green-50 dark:bg-green-950/20 rounded-lg flex flex-col max-h-[calc(100vh-180px)] md:max-h-[calc(100vh-200px)]">
               <div className="p-2 md:p-3 border-b bg-green-100 dark:bg-green-900/30 rounded-t-lg">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-1 md:gap-2">
@@ -1337,7 +1340,7 @@ export function PlansPage() {
               <div className="flex-1 p-1.5 md:p-2 space-y-1.5 md:space-y-2 overflow-y-auto">
                 {completedProjects.length === 0 ? (
                   <div className="text-center text-muted-foreground text-xs py-4">
-                    無專案
+                    無個案
                   </div>
                 ) : (
                   completedProjects.slice(0, 10).map((project) => {
@@ -1397,10 +1400,10 @@ export function PlansPage() {
             const oneTimePayments: { project: Project; amount: number; org: string; date: number }[] = []
             const periodicPayments: { project: Project; amount: number; org: string; frequency: string }[] = []
 
-            // 評議委員會專案清單
+            // 評議委員會個案清單
             const committeeProjects: { date: number; project: Project; org: string }[] = []
 
-            // 包含進行中和已結案的專案，以顯示完整匯款紀錄
+            // 包含進行中和已結案的個案，以顯示完整匯款紀錄
             const allTrackingProjects = [...activeProjects, ...completedProjects]
 
             allTrackingProjects.forEach(p => {
@@ -1535,7 +1538,27 @@ export function PlansPage() {
                     {/* 一次性補助 */}
                     <div>
                       <div className="flex items-center justify-between mb-2">
-                        <span className="text-sm font-medium text-orange-600">一次性補助</span>
+                        <div className="flex items-center gap-2">
+                          {oneTimePayments.length > 0 && (
+                            <input
+                              type="checkbox"
+                              className="h-4 w-4 rounded border-gray-300 cursor-pointer"
+                              checked={oneTimePayments.every(({ project }) => checkedPayments.has(`oneTime-${project.id}`))}
+                              onChange={(e) => {
+                                const newChecked = new Set(checkedPayments)
+                                oneTimePayments.forEach(({ project }) => {
+                                  if (e.target.checked) {
+                                    newChecked.add(`oneTime-${project.id}`)
+                                  } else {
+                                    newChecked.delete(`oneTime-${project.id}`)
+                                  }
+                                })
+                                setCheckedPayments(newChecked)
+                              }}
+                            />
+                          )}
+                          <span className="text-sm font-medium text-orange-600">一次性補助</span>
+                        </div>
                         <Badge variant="outline" className="text-orange-600 border-orange-300">
                           {oneTimePayments.length} 筆 · NT$ {totalOneTime.toLocaleString()}
                         </Badge>
@@ -1548,34 +1571,54 @@ export function PlansPage() {
                             <div
                               key={project.id}
                               className={cn(
-                                "p-2 rounded border cursor-pointer",
-                                project.status === 'completed'
-                                  ? "bg-gray-50 dark:bg-gray-950/20 hover:bg-gray-100 dark:hover:bg-gray-950/30 opacity-70"
-                                  : "bg-orange-50 dark:bg-orange-950/20 hover:bg-orange-100 dark:hover:bg-orange-950/30"
+                                "p-2 rounded border flex items-start gap-2",
+                                checkedPayments.has(`oneTime-${project.id}`)
+                                  ? "bg-green-50 dark:bg-green-950/20 border-green-300"
+                                  : project.status === 'completed'
+                                  ? "bg-gray-50 dark:bg-gray-950/20 opacity-70"
+                                  : "bg-orange-50 dark:bg-orange-950/20"
                               )}
-                              onClick={() => {
-                                const plan = plans.find(pl => pl.id === project.planId)
-                                if (plan) {
-                                  handleSelectPlan(plan)
-                                  setTimeout(() => setSelectedProject(project), 100)
-                                }
-                              }}
                             >
-                              <div className="flex items-center justify-between">
-                                <div className="flex items-center gap-2">
-                                  <span className="font-medium text-sm">{project.name}</span>
-                                  {project.status === 'completed' && (
-                                    <Badge variant="outline" className="text-xs text-green-600 border-green-300">已結案</Badge>
-                                  )}
+                              <input
+                                type="checkbox"
+                                className="h-4 w-4 mt-0.5 rounded border-gray-300 cursor-pointer shrink-0"
+                                checked={checkedPayments.has(`oneTime-${project.id}`)}
+                                onChange={(e) => {
+                                  const newChecked = new Set(checkedPayments)
+                                  if (e.target.checked) {
+                                    newChecked.add(`oneTime-${project.id}`)
+                                  } else {
+                                    newChecked.delete(`oneTime-${project.id}`)
+                                  }
+                                  setCheckedPayments(newChecked)
+                                }}
+                              />
+                              <div
+                                className="flex-1 cursor-pointer"
+                                onClick={() => {
+                                  const plan = plans.find(pl => pl.id === project.planId)
+                                  if (plan) {
+                                    handleSelectPlan(plan)
+                                    setTimeout(() => setSelectedProject(project), 100)
+                                  }
+                                }}
+                              >
+                                <div className="flex items-center justify-between">
+                                  <div className="flex items-center gap-2">
+                                    <span className="font-medium text-sm">{project.name}</span>
+                                    {project.status === 'completed' && (
+                                      <Badge variant="outline" className="text-xs text-green-600 border-green-300">已結案</Badge>
+                                    )}
+                                  </div>
+                                  <div className="flex items-center gap-2">
+                                    <Badge variant="secondary" className="text-xs">{date} 日</Badge>
+                                    <span className="text-sm font-semibold text-orange-600">
+                                      NT$ {amount.toLocaleString()}
+                                    </span>
+                                  </div>
                                 </div>
-                                <div className="flex items-center gap-2">
-                                  <Badge variant="secondary" className="text-xs">{date} 日</Badge>
-                                  <span className="text-sm font-semibold text-orange-600">
-                                    NT$ {amount.toLocaleString()}
-                                  </span>
-                                </div>
+                                <div className="text-xs text-muted-foreground">{org}</div>
                               </div>
-                              <div className="text-xs text-muted-foreground">{org}</div>
                             </div>
                           ))}
                         </div>
@@ -1585,7 +1628,27 @@ export function PlansPage() {
                     {/* 期間性補助 */}
                     <div>
                       <div className="flex items-center justify-between mb-2">
-                        <span className="text-sm font-medium text-blue-600">期間性補助</span>
+                        <div className="flex items-center gap-2">
+                          {periodicPayments.length > 0 && (
+                            <input
+                              type="checkbox"
+                              className="h-4 w-4 rounded border-gray-300 cursor-pointer"
+                              checked={periodicPayments.every(({ project }) => checkedPayments.has(`periodic-${project.id}`))}
+                              onChange={(e) => {
+                                const newChecked = new Set(checkedPayments)
+                                periodicPayments.forEach(({ project }) => {
+                                  if (e.target.checked) {
+                                    newChecked.add(`periodic-${project.id}`)
+                                  } else {
+                                    newChecked.delete(`periodic-${project.id}`)
+                                  }
+                                })
+                                setCheckedPayments(newChecked)
+                              }}
+                            />
+                          )}
+                          <span className="text-sm font-medium text-blue-600">期間性補助</span>
+                        </div>
                         <Badge variant="outline" className="text-blue-600 border-blue-300">
                           {periodicPayments.length} 筆 · NT$ {totalPeriodic.toLocaleString()}
                         </Badge>
@@ -1598,31 +1661,51 @@ export function PlansPage() {
                             <div
                               key={project.id}
                               className={cn(
-                                "p-2 rounded border cursor-pointer",
-                                project.status === 'completed'
-                                  ? "bg-gray-50 dark:bg-gray-950/20 hover:bg-gray-100 dark:hover:bg-gray-950/30 opacity-70"
-                                  : "bg-blue-50 dark:bg-blue-950/20 hover:bg-blue-100 dark:hover:bg-blue-950/30"
+                                "p-2 rounded border flex items-start gap-2",
+                                checkedPayments.has(`periodic-${project.id}`)
+                                  ? "bg-green-50 dark:bg-green-950/20 border-green-300"
+                                  : project.status === 'completed'
+                                  ? "bg-gray-50 dark:bg-gray-950/20 opacity-70"
+                                  : "bg-blue-50 dark:bg-blue-950/20"
                               )}
-                              onClick={() => {
-                                const plan = plans.find(pl => pl.id === project.planId)
-                                if (plan) {
-                                  handleSelectPlan(plan)
-                                  setTimeout(() => setSelectedProject(project), 100)
-                                }
-                              }}
                             >
-                              <div className="flex items-center justify-between">
-                                <div className="flex items-center gap-2">
-                                  <span className="font-medium text-sm">{project.name}</span>
-                                  {project.status === 'completed' && (
-                                    <Badge variant="outline" className="text-xs text-green-600 border-green-300">已結案</Badge>
-                                  )}
+                              <input
+                                type="checkbox"
+                                className="h-4 w-4 mt-0.5 rounded border-gray-300 cursor-pointer shrink-0"
+                                checked={checkedPayments.has(`periodic-${project.id}`)}
+                                onChange={(e) => {
+                                  const newChecked = new Set(checkedPayments)
+                                  if (e.target.checked) {
+                                    newChecked.add(`periodic-${project.id}`)
+                                  } else {
+                                    newChecked.delete(`periodic-${project.id}`)
+                                  }
+                                  setCheckedPayments(newChecked)
+                                }}
+                              />
+                              <div
+                                className="flex-1 cursor-pointer"
+                                onClick={() => {
+                                  const plan = plans.find(pl => pl.id === project.planId)
+                                  if (plan) {
+                                    handleSelectPlan(plan)
+                                    setTimeout(() => setSelectedProject(project), 100)
+                                  }
+                                }}
+                              >
+                                <div className="flex items-center justify-between">
+                                  <div className="flex items-center gap-2">
+                                    <span className="font-medium text-sm">{project.name}</span>
+                                    {project.status === 'completed' && (
+                                      <Badge variant="outline" className="text-xs text-green-600 border-green-300">已結案</Badge>
+                                    )}
+                                  </div>
+                                  <span className="text-sm font-semibold text-blue-600">
+                                    NT$ {amount.toLocaleString()}
+                                  </span>
                                 </div>
-                                <span className="text-sm font-semibold text-blue-600">
-                                  NT$ {amount.toLocaleString()}
-                                </span>
+                                <div className="text-xs text-muted-foreground">{org} · {frequency}</div>
                               </div>
-                              <div className="text-xs text-muted-foreground">{org} · {frequency}</div>
                             </div>
                           ))}
                         </div>
@@ -1702,8 +1785,8 @@ export function PlansPage() {
                           <div
                             key={day}
                             className={cn(
-                              "aspect-square border rounded-lg p-1 text-sm relative min-h-[48px]",
-                              isToday && "border-primary border-2",
+                              "aspect-square md:border rounded-lg p-1 text-sm relative min-h-[64px] md:min-h-[48px]",
+                              isToday && "border-primary border-2 md:border-2",
                               hasEvents && "cursor-pointer hover:bg-muted/50"
                             )}
                           >
@@ -1805,25 +1888,57 @@ export function PlansPage() {
                           <Badge variant="secondary">{trackingEventPopup.projects.length} 案</Badge>
                         </div>
                       </div>
-                      <div className="p-4 space-y-2 max-h-[60vh] overflow-y-auto">
+                      <div className="p-4 space-y-1.5 max-h-[60vh] overflow-y-auto">
                         {trackingEventPopup.projects.map(project => {
                           const org = organizations.find(o => o.id === project.organizationId)
                           const plan = plans.find(pl => pl.id === project.planId)
+                          const checkKey = trackingEventPopup.type === 'oneTime'
+                            ? `oneTime-${project.id}`
+                            : trackingEventPopup.type === 'periodic'
+                            ? `periodic-${project.id}`
+                            : `committee-${project.id}`
                           return (
                             <div
                               key={project.id}
-                              className="p-3 border rounded-lg cursor-pointer hover:bg-muted/50 transition-colors"
-                              onClick={() => {
-                                setTrackingEventPopup(null)
-                                if (plan) {
-                                  handleSelectPlan(plan)
-                                  setTimeout(() => setSelectedProject(project), 100)
-                                }
-                              }}
+                              className={cn(
+                                "p-2 border rounded-lg flex items-center gap-2 transition-colors",
+                                checkedPayments.has(checkKey)
+                                  ? "bg-green-50 dark:bg-green-950/20 border-green-300"
+                                  : "hover:bg-muted/50"
+                              )}
                             >
-                              <div className="font-medium">{project.name}</div>
-                              {org && <div className="text-sm text-muted-foreground">{org.name}</div>}
-                              {plan && <Badge variant="outline" className="text-xs mt-1">{plan.name}</Badge>}
+                              {trackingEventPopup.type !== 'committee' && (
+                                <input
+                                  type="checkbox"
+                                  className="h-4 w-4 rounded border-gray-300 cursor-pointer shrink-0"
+                                  checked={checkedPayments.has(checkKey)}
+                                  onChange={(e) => {
+                                    const newChecked = new Set(checkedPayments)
+                                    if (e.target.checked) {
+                                      newChecked.add(checkKey)
+                                    } else {
+                                      newChecked.delete(checkKey)
+                                    }
+                                    setCheckedPayments(newChecked)
+                                  }}
+                                />
+                              )}
+                              <div
+                                className="flex-1 flex items-center justify-between cursor-pointer min-w-0 gap-2"
+                                onClick={() => {
+                                  setTrackingEventPopup(null)
+                                  if (plan) {
+                                    handleSelectPlan(plan)
+                                    setTimeout(() => setSelectedProject(project), 100)
+                                  }
+                                }}
+                              >
+                                <span className="font-medium text-sm truncate">{project.name}</span>
+                                <div className="flex items-center gap-1.5 shrink-0">
+                                  {org && <span className="text-xs text-muted-foreground">{org.name}</span>}
+                                  {plan && <Badge variant="outline" className="text-[10px] px-1.5 py-0">{plan.name}</Badge>}
+                                </div>
+                              </div>
                             </div>
                           )
                         })}
@@ -1855,10 +1970,11 @@ export function PlansPage() {
             }}
           >
             <div
+              key={`flow-modal-${selectedProject.id}`}
               className="bg-card border rounded-lg shadow-xl w-full h-full md:w-[90vw] md:max-w-6xl md:h-[85vh] overflow-hidden"
               onClick={(e) => e.stopPropagation()}
             >
-              <ProjectDetailColumn />
+              {ProjectDetailColumn()}
             </div>
           </div>
         )}
@@ -1868,7 +1984,7 @@ export function PlansPage() {
 
   // Projects Column Component
   const ProjectsColumn = () => (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col md:h-full">
       <div className="p-4 border-b space-y-3">
         <div className="flex items-center gap-2">
           <Button
@@ -1882,19 +1998,42 @@ export function PlansPage() {
           >
             <ArrowLeft className="h-4 w-4" />
           </Button>
-          <div className="flex items-center justify-between flex-1">
-            <h2 className="text-lg font-semibold flex items-center gap-2">
-              <FileText className="h-5 w-5" />
-              {/* Mobile: show plan name, Desktop: show 專案 */}
-              <span className="md:hidden">
-                {showArchivedProjects ? "封存專案" : selectedPlan?.name || "專案"}
+          <div className="flex items-center justify-between flex-1 min-w-0">
+            <div className="flex items-center gap-2 min-w-0 flex-1">
+              <FileText className="h-5 w-5 shrink-0" />
+              {/* Mobile: dropdown to select plan */}
+              <div className="md:hidden flex-1 min-w-0">
+                {showArchivedProjects ? (
+                  <span className="text-lg font-semibold">不成立</span>
+                ) : (
+                  <Select
+                    value={selectedPlan?.id || ""}
+                    onValueChange={(planId) => {
+                      const plan = plans.find(p => p.id === planId)
+                      if (plan) handleSelectPlan(plan)
+                    }}
+                  >
+                    <SelectTrigger className="h-8 border-0 shadow-none p-0 font-semibold text-base focus:ring-0">
+                      <SelectValue placeholder="選擇計畫" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {plans.map(plan => (
+                        <SelectItem key={plan.id} value={plan.id}>
+                          {plan.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              </div>
+              {/* Desktop: show 個案 */}
+              <span className="hidden md:inline text-lg font-semibold">
+                {showArchivedProjects ? "不成立" : "個案"}
               </span>
-              <span className="hidden md:inline">
-                {showArchivedProjects ? "封存專案" : "專案"}
-              </span>
-            </h2>
+            </div>
+            {/* Desktop only: X and + buttons in header */}
             {selectedPlan && (
-              <div className="flex items-center gap-1">
+              <div className="hidden md:flex items-center gap-1">
                 {/* Archived button */}
                 <Button
                   variant={showArchivedProjects ? "secondary" : "ghost"}
@@ -1902,9 +2041,9 @@ export function PlansPage() {
                   onClick={() => {
                     setShowArchivedProjects(!showArchivedProjects)
                   }}
-                  title={showArchivedProjects ? "返回專案列表" : "查看封存專案"}
+                  title={showArchivedProjects ? "返回個案列表" : "查看不成立個案"}
                 >
-                  <Archive className="h-4 w-4" />
+                  <XCircle className="h-4 w-4" />
                   {archivedProjectCount > 0 && !showArchivedProjects && (
                     <span className="ml-1 text-xs">{archivedProjectCount}</span>
                   )}
@@ -1912,28 +2051,137 @@ export function PlansPage() {
                 {!showArchivedProjects && (
                   <Button size="sm" onClick={() => openProjectForm()}>
                     <Plus className="h-4 w-4" />
+                    <span className="ml-1">個案</span>
                   </Button>
                 )}
               </div>
             )}
           </div>
         </div>
+        {/* Mobile: Search + actions row */}
         {selectedPlan && (
-          <>
-            <div className="relative">
+          <div className="md:hidden flex items-center gap-2">
+            <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
-                placeholder="搜尋專案..."
+                placeholder="搜尋個案..."
                 value={projectSearch}
                 onChange={(e) => setProjectSearch(e.target.value)}
                 className="pl-9 h-9"
               />
             </div>
-          </>
+            <Button
+              variant={showArchivedProjects ? "secondary" : "ghost"}
+              size="sm"
+              className="h-9 w-9 p-0 shrink-0"
+              onClick={() => {
+                setShowArchivedProjects(!showArchivedProjects)
+              }}
+              title={showArchivedProjects ? "返回個案列表" : "查看不成立個案"}
+            >
+              <XCircle className="h-4 w-4" />
+            </Button>
+            {!showArchivedProjects && (
+              <Button size="sm" className="h-9 w-9 p-0 shrink-0" onClick={() => openProjectForm()}>
+                <Plus className="h-4 w-4" />
+              </Button>
+            )}
+          </div>
+        )}
+        {/* Desktop: Search row */}
+        {selectedPlan && (
+          <div className="hidden md:block relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="搜尋個案..."
+              value={projectSearch}
+              onChange={(e) => setProjectSearch(e.target.value)}
+              className="pl-9 h-9"
+            />
+          </div>
         )}
       </div>
 
-      <ScrollArea className="flex-1">
+      {/* Desktop: ScrollArea, Mobile: natural flow */}
+      <div className="md:hidden">
+        {!selectedPlan ? (
+          <div className="flex items-center justify-center py-8 text-muted-foreground text-sm">
+            請選擇計畫
+          </div>
+        ) : planProjects.length === 0 ? (
+          <div className="text-center text-muted-foreground py-8 text-sm">
+            {projectSearch
+              ? "無符合的個案"
+              : showArchivedProjects
+              ? "此計畫下無不成立個案"
+              : "此計畫下尚無個案"}
+          </div>
+        ) : (
+          <div className="divide-y">
+            {planProjects.map((project) => {
+              const progress =
+                (project.workflow.filter((s) => s.status === "approved").length /
+                  project.workflow.length) *
+                100
+              const currentStep = project.workflow[project.currentStep]
+              const isSelected = selectedProject?.id === project.id
+              const orgName = getOrganizationName(project.organizationId)
+
+              return (
+                <div
+                  key={project.id}
+                  className={cn(
+                    "p-4 cursor-pointer hover:bg-muted/50 transition-colors",
+                    isSelected && "bg-muted",
+                    project.status === "archived" && "opacity-60"
+                  )}
+                  onClick={() => handleSelectProject(project)}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex-1 min-w-0">
+                      {/* Mobile: name only (no badge) */}
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium truncate">{project.name}</span>
+                        {project.status === "not_established" && (
+                          <Badge variant="destructive" className="text-xs shrink-0">
+                            不成立
+                          </Badge>
+                        )}
+                        <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2 mt-1">
+                        {orgName && (
+                          <span className="text-xs text-muted-foreground flex items-center gap-1">
+                            <Building2 className="h-3 w-3" />
+                            {orgName}
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2 mt-2">
+                        <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">
+                          <div
+                            className="h-full bg-primary transition-all rounded-full"
+                            style={{ width: `${progress}%` }}
+                          />
+                        </div>
+                        <span className="text-xs text-muted-foreground w-8">
+                          {Math.round(progress)}%
+                        </span>
+                      </div>
+                      {currentStep && project.status === "active" && (
+                        <p className="text-xs text-muted-foreground mt-1">
+                          目前：{currentStep.name}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </div>
+      <ScrollArea className="flex-1 hidden md:block">
         {!selectedPlan ? (
           <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
             請選擇計畫
@@ -1941,10 +2189,10 @@ export function PlansPage() {
         ) : planProjects.length === 0 ? (
           <div className="text-center text-muted-foreground py-8 text-sm">
             {projectSearch
-              ? "無符合的專案"
+              ? "無符合的個案"
               : showArchivedProjects
-              ? "此計畫下無封存專案"
-              : "此計畫下尚無專案"}
+              ? "此計畫下無不成立個案"
+              : "此計畫下尚無個案"}
           </div>
         ) : (
           <div className="divide-y">
@@ -1983,15 +2231,10 @@ export function PlansPage() {
                           </Badge>
                         )}
                       </div>
-                      {/* Mobile: name + source type badge */}
+                      {/* Mobile: name only (no badge) */}
                       <div className="md:hidden">
                         <div className="flex items-center gap-2">
                           <span className="font-medium truncate">{project.name}</span>
-                          {project.description && (
-                            <Badge variant="secondary" className="text-xs shrink-0">
-                              {project.description}
-                            </Badge>
-                          )}
                           {project.status === "not_established" && (
                             <Badge variant="destructive" className="text-xs shrink-0">
                               不成立
@@ -2071,7 +2314,7 @@ export function PlansPage() {
         <div className="flex items-center justify-center h-full text-muted-foreground">
           <div className="text-center">
             <FileText className="h-12 w-12 mx-auto mb-4 opacity-20" />
-            <p>選擇一個專案查看詳情</p>
+            <p>選擇一個個案查看詳情</p>
           </div>
         </div>
       )
@@ -2152,7 +2395,10 @@ export function PlansPage() {
               <Button
                 variant="ghost"
                 size="sm"
-                onClick={() => openProjectForm(selectedProject)}
+                onClick={() => {
+                  savedScrollPositionRef.current = projectDetailScrollRef.current?.scrollTop || 0
+                  openProjectForm(selectedProject)
+                }}
               >
                 編輯
               </Button>
@@ -2176,7 +2422,7 @@ export function PlansPage() {
           </div>
         </div>
 
-        <div ref={projectDetailScrollRef} className="flex-1 min-w-0 overflow-y-auto overflow-x-hidden">
+        <div key="project-detail-scroll" ref={projectDetailScrollRef} className="flex-1 min-w-0 overflow-y-auto overflow-x-hidden" style={{ overflowAnchor: 'none' }}>
           <div className="p-4 space-y-6">
             {/* Workflow Progress */}
             <div className="w-full">
@@ -2369,7 +2615,7 @@ export function PlansPage() {
                                         })
                                       }
                                     } else if (step.type === "establishment") {
-                                      if (confirm("確定要將此專案設為不成立嗎？")) {
+                                      if (confirm("確定要將此個案設為不成立嗎？")) {
                                         projectService.advanceWorkflow(
                                           selectedProject.id,
                                           step.id,
@@ -2457,15 +2703,6 @@ export function PlansPage() {
                               </button>
                             )}
 
-                            {/* Sub-tasks badge */}
-                            {hasSubTasks && step.status !== "approved" && (
-                              <span className={cn(
-                                "absolute bg-warning text-warning-foreground rounded-full flex items-center justify-center z-10",
-                                isCurrentStep ? "-bottom-1 -right-1 w-5 h-5 text-[10px]" : "-bottom-0.5 -right-0.5 w-4 h-4 text-[8px]"
-                              )}>
-                                {subTasksCompleted}/{totalSubTasks}
-                              </span>
-                            )}
                           </div>
 
                           {/* Step Name */}
@@ -2476,18 +2713,6 @@ export function PlansPage() {
                             {step.name}
                           </span>
 
-                          {/* Role Info - only show for non-inactive steps */}
-                          {roleInfo && !isInactive && (
-                            <div className={cn(
-                              "text-muted-foreground mt-0.5 text-center",
-                              isCurrentStep ? "text-xs" : "text-[10px]"
-                            )}>
-                              <div>{roleInfo.label}：{roleInfo.role}</div>
-                              {roleInfo.verifierLabel && (
-                                <div>{roleInfo.verifierLabel}：{roleInfo.verifierRole}</div>
-                              )}
-                            </div>
-                          )}
 
                           {/* Waiting for verification indicator (for non-verifiers) */}
                           {isCurrentStep && step.type === "approval" && hasPendingExecution && !showApprovalButtons && selectedProject.status === "active" && (
@@ -2523,7 +2748,7 @@ export function PlansPage() {
               </div>
             </div>
 
-            {/* 專案內容 - Document Style */}
+            {/* 個案內容 - Document Style */}
             <Card className="overflow-hidden">
                 <CardContent className="p-0 overflow-hidden">
                   {selectedProject.workflow
@@ -2594,6 +2819,7 @@ export function PlansPage() {
                       return (
                         <div
                           key={step.id}
+                          data-step-id={step.id}
                           className={cn(
                             "p-6 overflow-hidden",
                             showBorder && "border-b"
@@ -2619,12 +2845,13 @@ export function PlansPage() {
                                     size="icon"
                                     className="h-6 w-6"
                                     onClick={() => {
-                                      const container = projectDetailScrollRef.current
-                                      const scrollTop = container?.scrollTop || 0
+                                      const stepId = step.id
                                       setEditingStepId(null)
-                                      setTimeout(() => {
-                                        if (container) container.scrollTop = scrollTop
-                                      }, 0)
+                                      requestAnimationFrame(() => {
+                                        requestAnimationFrame(() => {
+                                          document.querySelector(`[data-step-id="${stepId}"]`)?.scrollIntoView({ block: 'nearest' })
+                                        })
+                                      })
                                     }}
                                   >
                                     <Check className="h-3.5 w-3.5" />
@@ -2635,12 +2862,13 @@ export function PlansPage() {
                                     size="icon"
                                     className="h-6 w-6"
                                     onClick={() => {
-                                      const container = projectDetailScrollRef.current
-                                      const scrollTop = container?.scrollTop || 0
-                                      setEditingStepId(step.id)
-                                      setTimeout(() => {
-                                        if (container) container.scrollTop = scrollTop
-                                      }, 0)
+                                      const stepId = step.id
+                                      setEditingStepId(stepId)
+                                      requestAnimationFrame(() => {
+                                        requestAnimationFrame(() => {
+                                          document.querySelector(`[data-step-id="${stepId}"]`)?.scrollIntoView({ block: 'nearest' })
+                                        })
+                                      })
                                     }}
                                   >
                                     <EditIcon className="h-3.5 w-3.5" />
@@ -2917,7 +3145,7 @@ export function PlansPage() {
                                                       order: startOrder + idx,
                                                     }))
                                                     updateStepAttachments(selectedProject, originalIndex, [...existingAttachments, ...newAttachments])
-                                                    setTimeout(() => { if (container) container.scrollTop = scrollTop }, 0)
+                                                    setTimeout(() => { if (projectDetailScrollRef.current) projectDetailScrollRef.current.scrollTop = scrollTop }, 100)
                                                   } catch (err) {
                                                     console.error('Upload failed:', err)
                                                   }
@@ -3253,7 +3481,7 @@ export function PlansPage() {
                                                 order: startOrder + idx,
                                               }))
                                               updateStepAttachments(selectedProject, originalIndex, [...existingAttachments, ...newAttachments])
-                                              setTimeout(() => { if (container) container.scrollTop = scrollTop }, 0)
+                                              setTimeout(() => { if (projectDetailScrollRef.current) projectDetailScrollRef.current.scrollTop = scrollTop }, 100)
                                             } catch (err) {
                                               console.error('Upload failed:', err)
                                             }
@@ -3334,8 +3562,8 @@ export function PlansPage() {
                                                   })))
                                                   // Restore scroll position after React render
                                                   setTimeout(() => {
-                                                    if (container) container.scrollTop = scrollTop
-                                                  }, 0)
+                                                    if (projectDetailScrollRef.current) projectDetailScrollRef.current.scrollTop = scrollTop
+                                                  }, 100)
                                                 }}
                                               >
                                                 編輯
@@ -3398,7 +3626,7 @@ export function PlansPage() {
                                                             order: startOrder + idx,
                                                           }))
                                                           setEditExecAttachments([...editExecAttachments, ...newAttachments])
-                                                          setTimeout(() => { if (container) container.scrollTop = scrollTop }, 0)
+                                                          setTimeout(() => { if (projectDetailScrollRef.current) projectDetailScrollRef.current.scrollTop = scrollTop }, 100)
                                                         } catch (err) {
                                                           console.error('Upload failed:', err)
                                                         }
@@ -3426,7 +3654,7 @@ export function PlansPage() {
                                                     console.log("Update result:", result)
                                                     await loadProjectExecutions(selectedProject.id)
                                                     setEditingExecutionId(null)
-                                                    setTimeout(() => { if (container) container.scrollTop = scrollTop }, 0)
+                                                    setTimeout(() => { if (projectDetailScrollRef.current) projectDetailScrollRef.current.scrollTop = scrollTop }, 100)
                                                   } catch (error) {
                                                     console.error("Failed to update execution:", error)
                                                     alert("更新失敗: " + (error instanceof Error ? error.message : String(error)))
@@ -3444,7 +3672,7 @@ export function PlansPage() {
                                                 onClick={() => {
                                                   const container = projectDetailScrollRef.current; const scrollTop = container?.scrollTop || 0
                                                   setEditingExecutionId(null)
-                                                  setTimeout(() => { if (container) container.scrollTop = scrollTop }, 0)
+                                                  setTimeout(() => { if (projectDetailScrollRef.current) projectDetailScrollRef.current.scrollTop = scrollTop }, 100)
                                                 }}
                                               >
                                                 取消
@@ -3781,7 +4009,7 @@ export function PlansPage() {
                                                 currentStep: nextStepIndex,
                                               })
                                             } else {
-                                              // 不通過：更新步驟狀態，專案設為不成立
+                                              // 不通過：更新步驟狀態，個案設為不成立
                                               currentStep.status = "not_established"
                                               currentStep.approvedBy = user.id
                                               currentStep.approvedAt = new Date().toISOString()
@@ -3863,7 +4091,7 @@ export function PlansPage() {
                                                         order: startOrder + idx,
                                                       }))
                                                       setCommitteeAttachments([...committeeAttachments, ...newAttachments])
-                                                      setTimeout(() => { if (container) container.scrollTop = scrollTop }, 0)
+                                                      setTimeout(() => { if (projectDetailScrollRef.current) projectDetailScrollRef.current.scrollTop = scrollTop }, 100)
                                                     } catch (err) {
                                                       console.error('Upload failed:', err)
                                                     }
@@ -3874,12 +4102,12 @@ export function PlansPage() {
                                           </div>
                                         </div>
 
-                                        {/* 補助用途 - 自動帶入專案類型 */}
+                                        {/* 補助用途 - 自動帶入個案類型 */}
                                         <div className="space-y-2">
                                           <Label>補助用途</Label>
                                           <div className="flex flex-wrap gap-3">
                                             {['急難救助', '醫療補助', '教育扶助', '喪葬補助', '生活扶助'].map((purpose) => {
-                                              // 預設勾選專案的補助類型
+                                              // 預設勾選個案的補助類型
                                               const isDefaultChecked = selectedProject?.projectType === purpose
                                               const isChecked = committeeForm.purposes.length > 0
                                                 ? committeeForm.purposes.includes(purpose)
@@ -4064,7 +4292,7 @@ export function PlansPage() {
                                                 補助期間：{subsidyData.periodStart} 至 {subsidyData.periodEnd}
                                               </div>
                                               <div className="text-xs text-muted-foreground mt-1">
-                                                請使用「專案追蹤」功能管理追蹤進度
+                                                請使用「個案追蹤」功能管理追蹤進度
                                               </div>
                                             </div>
                                           )
@@ -4140,7 +4368,7 @@ export function PlansPage() {
                                                             order: startOrder + idx,
                                                           }))
                                                           setClosingAttachments([...closingAttachments, ...newAttachments])
-                                                          setTimeout(() => { if (container) container.scrollTop = scrollTop }, 0)
+                                                          setTimeout(() => { if (projectDetailScrollRef.current) projectDetailScrollRef.current.scrollTop = scrollTop }, 100)
                                                         } catch (err) {
                                                           console.error('Upload failed:', err)
                                                         }
@@ -4208,7 +4436,7 @@ export function PlansPage() {
                                                         order: startOrder + idx,
                                                       }))
                                                       setInlineExecAttachments([...inlineExecAttachments, ...newAttachments])
-                                                      setTimeout(() => { if (container) container.scrollTop = scrollTop }, 0)
+                                                      setTimeout(() => { if (projectDetailScrollRef.current) projectDetailScrollRef.current.scrollTop = scrollTop }, 100)
                                                     } catch (err) {
                                                       console.error('Upload failed:', err)
                                                     }
@@ -4278,7 +4506,7 @@ export function PlansPage() {
                                             // 取得會議日期（從 subTask[0].note，由評估表設定）
                                             const meetingDate = committeeStep.subTasks?.[0]?.note || ''
 
-                                            // 取得補助用途（優先用表單值，否則用專案類型）
+                                            // 取得補助用途（優先用表單值，否則用個案類型）
                                             const purposes = committeeForm.purposes.length > 0
                                               ? committeeForm.purposes
                                               : selectedProject.projectType ? [selectedProject.projectType] : []
@@ -4392,7 +4620,7 @@ export function PlansPage() {
                                               closingStep.approvedAt = new Date().toISOString()
                                               closingStep.note = JSON.stringify({ subsidyType: 'periodic' })
 
-                                              // 專案維持進行中狀態（追蹤中）
+                                              // 個案維持進行中狀態（追蹤中）
                                               await projectService.updateProject(selectedProject.id, {
                                                 workflow: newWorkflow,
                                                 currentStep: nextStepIndex,
@@ -4413,7 +4641,7 @@ export function PlansPage() {
                                             if (inlineExecContentRef.current) inlineExecContentRef.current.value = ""
                                             setInlineExecAttachments([])
                                           } else if (step.name.includes("結案")) {
-                                            // 結案與追蹤：儲存匯款日期或追蹤日期，完成專案
+                                            // 結案與追蹤：儲存匯款日期或追蹤日期，完成個案
                                             const newWorkflow = [...selectedProject.workflow]
                                             const closingStep = newWorkflow[selectedProject.currentStep]
 
@@ -4442,7 +4670,7 @@ export function PlansPage() {
                                             closingStep.status = "approved"
                                             closingStep.approvedAt = new Date().toISOString()
 
-                                            // 更新專案狀態為已完成
+                                            // 更新個案狀態為已完成
                                             await projectService.updateProject(selectedProject.id, {
                                               workflow: newWorkflow,
                                               currentStep: selectedProject.currentStep,
@@ -4520,7 +4748,7 @@ export function PlansPage() {
                   ).length === 0 && (
                     <div className="p-8 text-center text-muted-foreground">
                       <FileText className="h-10 w-10 mx-auto mb-2 opacity-30" />
-                      <p>尚無專案內容</p>
+                      <p>尚無個案內容</p>
                     </div>
                   )}
                 </CardContent>
@@ -4533,15 +4761,15 @@ export function PlansPage() {
   }
 
   return (
-    <div className="h-[calc(100vh-8rem)] overflow-hidden flex flex-col">
+    <div className="flex flex-col md:h-[calc(100vh-8rem)] md:overflow-hidden">
       {/* Page Header - includes plan selector when plan is selected */}
       <div className="mb-4 shrink-0">
         {!selectedPlan ? (
           // Normal header when no plan selected
           <div className="flex items-center justify-between">
             <div>
-              <h1 className="text-3xl font-bold">計畫管理</h1>
-              <p className="text-muted-foreground">管理計畫與專案流程</p>
+              <h1 className="text-xl font-bold">計畫管理</h1>
+              <p className="text-muted-foreground">管理計畫與個案流程</p>
             </div>
           </div>
         ) : (
@@ -4550,7 +4778,7 @@ export function PlansPage() {
             <div className="flex items-center gap-4">
               {/* Back button */}
               <Button
-                variant="outline"
+                variant="ghost"
                 onClick={() => {
                   setSelectedPlan(null)
                   setSelectedProject(null)
@@ -4559,7 +4787,7 @@ export function PlansPage() {
                 className="shrink-0"
               >
                 <ArrowLeft className="h-4 w-4 mr-2" />
-                返回列表
+                返回
               </Button>
 
               {/* All plans horizontal scroll */}
@@ -4572,7 +4800,7 @@ export function PlansPage() {
                         <div
                           key={plan.id}
                           className={cn(
-                            "flex items-center gap-2 px-4 py-2 rounded-full cursor-pointer transition-all whitespace-nowrap shrink-0",
+                            "flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer transition-all whitespace-nowrap shrink-0",
                             isSelected
                               ? "bg-primary text-primary-foreground"
                               : "bg-muted hover:bg-muted/80"
@@ -4580,7 +4808,7 @@ export function PlansPage() {
                           onClick={() => handleSelectPlan(plan)}
                         >
                           {/* Thumbnail */}
-                          <div className="w-8 h-8 rounded-full overflow-hidden bg-background/20 shrink-0">
+                          <div className="w-7 h-7 rounded overflow-hidden bg-background/20 shrink-0">
                             {plan.coverImage ? (
                               <img
                                 src={plan.coverImage.thumbnailUrl || plan.coverImage.originalUrl}
@@ -4617,34 +4845,32 @@ export function PlansPage() {
       </div>
 
       {/* New Layout: Top cards + Bottom two columns */}
-      <Card className="flex-1 overflow-hidden flex flex-col">
-        {/* Desktop View */}
-        <div className="hidden md:flex md:flex-col h-full">
-          {/* Top: Plan Cards - only show when no plan selected */}
-          {!selectedPlan && <PlansCards />}
+      {/* Desktop: Card with fixed layout */}
+      <Card className="hidden md:flex flex-1 overflow-hidden flex-col">
+        {/* Top: Plan Cards - only show when no plan selected */}
+        {!selectedPlan && <PlansCards />}
 
-          {/* Bottom: Two columns (Projects + Detail) */}
-          {selectedPlan && (
-            <div className="flex flex-1 overflow-hidden">
-              {/* Left: Projects list */}
-              <div className="w-[20%] border-r overflow-hidden">
-                <ProjectsColumn />
-              </div>
-              {/* Right: Project detail */}
-              <div className="flex-1 overflow-hidden">
-                <ProjectDetailColumn />
-              </div>
+        {/* Bottom: Two columns (Projects + Detail) */}
+        {selectedPlan && (
+          <div className="flex flex-1 overflow-hidden">
+            {/* Left: Projects list */}
+            <div className="w-[20%] border-r overflow-hidden">
+              <ProjectsColumn />
             </div>
-          )}
-        </div>
-
-        {/* Mobile: Single column with view switching */}
-        <div className="md:hidden h-full w-full overflow-y-auto">
-          {mobileView === "plans" && <PlansCards />}
-          {mobileView === "projects" && <ProjectsColumn />}
-          {mobileView === "detail" && <ProjectDetailColumn />}
-        </div>
+            {/* Right: Project detail */}
+            <div className="flex-1 overflow-hidden">
+              {ProjectDetailColumn()}
+            </div>
+          </div>
+        )}
       </Card>
+
+      {/* Mobile: No Card wrapper, natural flow */}
+      <div className="md:hidden pb-20">
+        {mobileView === "plans" && <PlansCards />}
+        {mobileView === "projects" && <ProjectsColumn />}
+        {mobileView === "detail" && ProjectDetailColumn()}
+      </div>
 
       {/* Plan Form Dialog */}
       <Dialog open={isPlanFormOpen} onOpenChange={setIsPlanFormOpen}>
@@ -5065,12 +5291,22 @@ export function PlansPage() {
       </Dialog>
 
       {/* Project Form Dialog */}
-      <Dialog open={isProjectFormOpen} onOpenChange={setIsProjectFormOpen}>
-        <DialogContent className="max-w-lg">
+      <Dialog open={isProjectFormOpen} onOpenChange={(open) => {
+        setIsProjectFormOpen(open)
+        if (open && savedScrollPositionRef.current > 0) {
+          // Restore scroll position after dialog animation completes
+          setTimeout(() => {
+            if (projectDetailScrollRef.current) {
+              projectDetailScrollRef.current.scrollTop = savedScrollPositionRef.current
+            }
+          }, 100)
+        }
+      }}>
+        <DialogContent className="max-w-lg" onOpenAutoFocus={(e) => e.preventDefault()}>
           <DialogHeader>
-            <DialogTitle>{editingProject ? "編輯專案" : "新增專案"}</DialogTitle>
+            <DialogTitle>{editingProject ? "編輯個案" : "新增個案"}</DialogTitle>
             <DialogDescription>
-              {selectedPlan?.name ? `${selectedPlan.name} 下的專案` : projectFormData.planId ? `${plans.find(p => p.id === projectFormData.planId)?.name} 下的專案` : "請先選擇計畫"}
+              {selectedPlan?.name ? `${selectedPlan.name} 下的個案` : projectFormData.planId ? `${plans.find(p => p.id === projectFormData.planId)?.name} 下的個案` : "請先選擇計畫"}
             </DialogDescription>
           </DialogHeader>
 
@@ -5101,7 +5337,7 @@ export function PlansPage() {
 
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label>專案名稱 *</Label>
+                <Label>個案名稱 *</Label>
                 <Input
                   value={projectFormData.name}
                   onChange={(e) =>
@@ -5111,7 +5347,7 @@ export function PlansPage() {
                 />
               </div>
               <div className="space-y-2">
-                <Label>專案編號</Label>
+                <Label>個案編號</Label>
                 <Input
                   value={projectFormData.projectNumber}
                   onChange={(e) =>
@@ -5441,7 +5677,7 @@ export function PlansPage() {
                 <div className="flex items-center gap-2">
                   <Badge variant="secondary">{viewingPlan.type}</Badge>
                   <Badge variant="outline">
-                    {projects.filter(p => p.planId === viewingPlan.id && p.status !== "archived").length} 專案
+                    {projects.filter(p => p.planId === viewingPlan.id && p.status !== "archived").length} 個案
                   </Badge>
                   {viewingPlan.isPublic && (
                     <Badge className="bg-green-100 text-green-800">已公開</Badge>

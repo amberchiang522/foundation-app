@@ -4,6 +4,7 @@ import { useAuth } from "@/contexts/AuthContext"
 import { Sidebar } from "./Sidebar"
 import { DashboardHeader } from "./DashboardHeader"
 import { MobileSidebar } from "./MobileSidebar"
+import { ScrollToTop } from "./ScrollToTop"
 
 export function DashboardLayout() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
@@ -11,6 +12,7 @@ export function DashboardLayout() {
 
   return (
     <div className="flex min-h-screen">
+      <ScrollToTop />
       {/* Desktop Sidebar */}
       <Sidebar isAdmin={isAdmin} isSuperAdmin={isSuperAdmin} />
 
@@ -23,13 +25,13 @@ export function DashboardLayout() {
       />
 
       {/* Main Content */}
-      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+      <div className="flex-1 flex flex-col min-w-0 overflow-auto">
         <DashboardHeader
           onMenuClick={() => setMobileMenuOpen(true)}
           userName={user?.name || '使用者'}
           onLogout={logout}
         />
-        <main className="flex-1 p-4 lg:p-6 overflow-hidden">
+        <main className="flex-1 p-4 lg:p-6">
           <Outlet />
         </main>
       </div>

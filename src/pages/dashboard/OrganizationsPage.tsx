@@ -536,7 +536,7 @@ export function OrganizationsPage() {
   if (isLoading) {
     return (
       <div className="space-y-6">
-        <h1 className="text-3xl font-bold">機構管理</h1>
+        <h1 className="text-xl font-bold">機構管理</h1>
         <Card>
           <CardContent className="py-12">
             <div className="text-center text-muted-foreground">載入中...</div>
@@ -689,7 +689,7 @@ export function OrganizationsPage() {
                 {relatedProjects.length > 0 && (
                   <Badge variant="outline" className="text-xs">
                     <FolderKanban className="h-3 w-3 mr-1" />
-                    {relatedProjects.length} 個專案
+                    {relatedProjects.length} 個個案
                   </Badge>
                 )}
                 {selectedOrg.contactPerson && (
@@ -750,7 +750,7 @@ export function OrganizationsPage() {
         <Tabs defaultValue="projects" className="flex-1 flex flex-col overflow-hidden">
           <div className="px-4 pt-2">
             <TabsList className="grid w-full grid-cols-3">
-              <TabsTrigger value="projects">相關專案 ({relatedProjects.length})</TabsTrigger>
+              <TabsTrigger value="projects">相關個案 ({relatedProjects.length})</TabsTrigger>
               <TabsTrigger value="records">訪視紀錄 ({visitRecords.length})</TabsTrigger>
               <TabsTrigger value="upcoming">待訪視 ({upcomingVisits.filter(v => v.status === 'pending').length})</TabsTrigger>
             </TabsList>
@@ -761,7 +761,7 @@ export function OrganizationsPage() {
               {isLoadingRecords ? (
                 <div className="text-center text-muted-foreground py-8">載入中...</div>
               ) : relatedProjects.length === 0 ? (
-                <div className="text-center text-muted-foreground py-8">尚無相關專案</div>
+                <div className="text-center text-muted-foreground py-8">尚無相關個案</div>
               ) : (
                 <div className="space-y-3 pr-4">
                   {relatedProjects.map((project) => (
@@ -953,7 +953,7 @@ export function OrganizationsPage() {
       {/* Page Header */}
       <div className="flex items-center justify-between mb-4">
         <div>
-          <h1 className="text-3xl font-bold">機構管理</h1>
+          <h1 className="text-xl font-bold">機構管理</h1>
           <p className="text-muted-foreground">管理合作機構與訪視紀錄</p>
         </div>
       </div>

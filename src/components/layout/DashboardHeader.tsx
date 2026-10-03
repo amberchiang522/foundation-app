@@ -19,8 +19,8 @@ export function DashboardHeader({ onMenuClick, userName = "使用者", onLogout 
         <Menu className="h-6 w-6" />
       </button>
 
-      {/* Logo - visible on mobile */}
-      <Link to="/dashboard" className="md:hidden inline-block">
+      {/* Logo - always visible */}
+      <Link to="/dashboard" className="inline-block">
         <img
           src="/logo.png"
           alt="鴻勁公益慈善基金會"

@@ -101,7 +101,7 @@ export function MyActivitiesPage() {
   if (isLoading) {
     return (
       <div className="space-y-6">
-        <h1 className="text-3xl font-bold">我的報名紀錄</h1>
+        <h1 className="text-xl font-bold">我的報名紀錄</h1>
         <Card>
           <CardContent className="py-12">
             <div className="text-center text-muted-foreground">載入中...</div>
@@ -115,7 +115,7 @@ export function MyActivitiesPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold">我的報名紀錄</h1>
+          <h1 className="text-xl font-bold">我的報名紀錄</h1>
           <p className="text-muted-foreground">查看您報名的活動與狀態</p>
         </div>
         <Button asChild>

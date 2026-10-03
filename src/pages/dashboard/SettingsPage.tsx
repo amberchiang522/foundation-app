@@ -203,7 +203,7 @@ export function SettingsPage() {
   if (isLoading) {
     return (
       <div className="space-y-6">
-        <h1 className="text-3xl font-bold">系統設定</h1>
+        <h1 className="text-xl font-bold">系統設定</h1>
         <Card>
           <CardContent className="py-12">
             <div className="text-center text-muted-foreground">載入中...</div>
@@ -216,7 +216,7 @@ export function SettingsPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-3xl font-bold">系統設定</h1>
+        <h1 className="text-xl font-bold">系統設定</h1>
         <p className="text-muted-foreground">管理系統參數與設定</p>
       </div>
 
@@ -228,7 +228,7 @@ export function SettingsPage() {
           </TabsTrigger>
           <TabsTrigger value="types" className="flex items-center gap-2">
             <FileText className="h-4 w-4" />
-            <span className="hidden sm:inline">專案類型</span>
+            <span className="hidden sm:inline">個案類型</span>
           </TabsTrigger>
           <TabsTrigger value="templates" className="flex items-center gap-2">
             <GitBranch className="h-4 w-4" />
@@ -278,9 +278,9 @@ export function SettingsPage() {
           <Card>
             <CardHeader className="flex flex-row items-center justify-between">
               <div>
-                <CardTitle>專案類型</CardTitle>
+                <CardTitle>個案類型</CardTitle>
                 <CardDescription>
-                  管理專案類型與對應的撥款額度範圍
+                  管理個案類型與對應的撥款額度範圍
                 </CardDescription>
               </div>
               <Button onClick={() => openTypeDialog()}>
@@ -392,7 +392,7 @@ export function SettingsPage() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>{editingType ? "編輯類型" : "新增類型"}</DialogTitle>
-            <DialogDescription>設定專案類型與額度範圍</DialogDescription>
+            <DialogDescription>設定個案類型與額度範圍</DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4">

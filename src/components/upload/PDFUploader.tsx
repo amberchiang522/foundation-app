@@ -2,16 +2,9 @@ import { useState, useCallback, useRef } from 'react'
 import { Button } from '@/components/ui/button'
 import { FileText, Upload, Trash2, Loader2, AlertCircle } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { supabase } from '@/lib/supabase'
-import { useSupabase } from '@/lib/supabase'
+import { pdfService, createPendingPDFUpload, type PDFData } from '@/services/pdfService'
 
-export interface PDFData {
-  id: string
-  url: string
-  fileName: string
-  fileSize: number
-  uploadedAt: string
-}
+export type { PDFData }
 
 interface PDFUploaderProps {
   value?: PDFData | null
@@ -19,74 +12,8 @@ interface PDFUploaderProps {
   className?: string
   disabled?: boolean
   label?: string
-}
-
-const MAX_FILE_SIZE = 10 * 1024 * 1024 // 10MB
-
-// Mock PDF upload for development
-async function mockUploadPDF(file: File): Promise<PDFData> {
-  await new Promise(resolve => setTimeout(resolve, 1000))
-
-  return {
-    id: `pdf_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
-    url: URL.createObjectURL(file),
-    fileName: file.name,
-    fileSize: file.size,
-    uploadedAt: new Date().toISOString(),
-  }
-}
-
-// Supabase PDF upload
-async function supabaseUploadPDF(file: File): Promise<PDFData> {
-  const timestamp = Date.now()
-  const random = Math.random().toString(36).substring(2, 8)
-  const filePath = `pdfs/${timestamp}_${random}.pdf`
-
-  const { data, error } = await supabase.storage
-    .from('plans')
-    .upload(filePath, file, {
-      contentType: 'application/pdf',
-      upsert: false,
-    })
-
-  if (error) {
-    throw new Error(`上傳失敗: ${error.message}`)
-  }
-
-  const { data: urlData } = supabase.storage
-    .from('plans')
-    .getPublicUrl(data.path)
-
-  return {
-    id: filePath, // Use filePath as id for deletion
-    url: urlData.publicUrl,
-    fileName: file.name,
-    fileSize: file.size,
-    uploadedAt: new Date().toISOString(),
-  }
-}
-
-// Supabase PDF delete
-async function supabaseDeletePDF(pdf: PDFData): Promise<void> {
-  // Extract path from URL or use id directly
-  let filePath = pdf.id
-
-  // If id doesn't look like a path, try to extract from URL
-  if (!filePath.includes('/')) {
-    const url = new URL(pdf.url)
-    const pathParts = url.pathname.split('/storage/v1/object/public/plans/')
-    if (pathParts.length > 1) {
-      filePath = pathParts[1]
-    }
-  }
-
-  const { error } = await supabase.storage
-    .from('plans')
-    .remove([filePath])
-
-  if (error) {
-    console.error('PDF delete error:', error)
-  }
+  /** If true, files are stored locally until form save. Use finalizePendingPDFUploads to upload. */
+  deferUpload?: boolean
 }
 
 export function PDFUploader({
@@ -95,11 +22,11 @@ export function PDFUploader({
   className,
   disabled = false,
   label = '上傳 PDF',
+  deferUpload = false,
 }: PDFUploaderProps) {
   const [isUploading, setIsUploading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const isSupabase = useSupabase
 
   const handleFileSelect = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -110,40 +37,43 @@ export function PDFUploader({
       fileInputRef.current.value = ''
     }
 
-    // Validate file type
-    if (file.type !== 'application/pdf') {
-      setError('請上傳 PDF 檔案')
-      return
-    }
-
-    // Validate file size
-    if (file.size > MAX_FILE_SIZE) {
-      setError('檔案大小不能超過 10MB')
-      return
+    // Clean up previous pending upload's blob URL
+    if (value?.pending) {
+      URL.revokeObjectURL(value.url)
     }
 
     setError(null)
     setIsUploading(true)
 
     try {
-      const pdfData = isSupabase
-        ? await supabaseUploadPDF(file)
-        : await mockUploadPDF(file)
-      onChange?.(pdfData)
+      // Deferred mode: create pending upload with blob URL
+      if (deferUpload) {
+        const pdfData = createPendingPDFUpload(file)
+        onChange?.(pdfData)
+      } else {
+        // Immediate mode: upload right away
+        const pdfData = await pdfService.upload(file)
+        onChange?.(pdfData)
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : '上傳失敗')
     } finally {
       setIsUploading(false)
     }
-  }, [isSupabase, onChange])
+  }, [onChange, deferUpload, value])
 
   const handleRemove = useCallback(async () => {
-    // Delete from Supabase if using Supabase
-    if (isSupabase && value) {
-      await supabaseDeletePDF(value)
+    if (value) {
+      if (value.pending) {
+        // Just revoke blob URL for pending uploads
+        URL.revokeObjectURL(value.url)
+      } else {
+        // Delete from storage for uploaded files
+        await pdfService.delete(value)
+      }
     }
     onChange?.(null)
-  }, [onChange, isSupabase, value])
+  }, [onChange, value])
 
   const formatFileSize = (bytes: number): string => {
     if (bytes < 1024) return `${bytes} B`

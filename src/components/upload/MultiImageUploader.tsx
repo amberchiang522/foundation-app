@@ -1,7 +1,7 @@
 import { useState, useCallback } from 'react'
 import { DropZone } from './DropZone'
 import { ImageGrid } from './ImageGrid'
-import { imageService, validateFile, imageConfig, type ImageType, type ImageUploadResult } from '@/services/imageService'
+import { imageService, validateFile, imageConfig, createPendingUploads, type ImageType, type ImageUploadResult } from '@/services/imageService'
 import { cn } from '@/lib/utils'
 
 interface MultiImageUploaderProps {
@@ -13,6 +13,8 @@ interface MultiImageUploaderProps {
   showCoverButton?: boolean
   className?: string
   disabled?: boolean
+  /** If true, files are stored locally until form save. Use finalizePendingUploads to upload. */
+  deferUpload?: boolean
 }
 
 export function MultiImageUploader({
@@ -24,6 +26,7 @@ export function MultiImageUploader({
   showCoverButton = false,
   className,
   disabled = false,
+  deferUpload = false,
 }: MultiImageUploaderProps) {
   const [isUploading, setIsUploading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -57,7 +60,10 @@ export function MultiImageUploader({
     setIsUploading(true)
 
     try {
-      const results = await imageService.uploadMultiple(files, type)
+      // Deferred mode: create pending uploads with blob URLs
+      const results = deferUpload
+        ? await createPendingUploads(files, type)
+        : await imageService.uploadMultiple(files, type)
 
       // Update order based on existing images
       const startOrder = value.length
@@ -77,10 +83,24 @@ export function MultiImageUploader({
     } finally {
       setIsUploading(false)
     }
-  }, [type, value, remainingSlots, onChange, showCoverButton, coverId, onCoverChange])
+  }, [type, value, remainingSlots, onChange, showCoverButton, coverId, onCoverChange, deferUpload])
 
   const handleRemove = useCallback(async (id: string) => {
-    await imageService.delete(id)
+    const imageToRemove = value.find(img => img.id === id)
+
+    if (imageToRemove) {
+      if (imageToRemove.pending) {
+        // Just revoke blob URLs for pending images
+        URL.revokeObjectURL(imageToRemove.originalUrl)
+        if (imageToRemove.thumbnailUrl !== imageToRemove.originalUrl) {
+          URL.revokeObjectURL(imageToRemove.thumbnailUrl)
+        }
+      } else {
+        // Delete from storage for uploaded images
+        await imageService.delete(id)
+      }
+    }
+
     const newImages = value.filter((img) => img.id !== id)
     onChange?.(newImages)
 

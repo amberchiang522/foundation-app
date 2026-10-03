@@ -181,7 +181,7 @@ export function ProjectsPage() {
     if (!user) return
 
     if (!formData.name || !formData.planId) {
-      alert("請填寫專案名稱並選擇計畫")
+      alert("請填寫個案名稱並選擇計畫")
       return
     }
 
@@ -255,7 +255,7 @@ export function ProjectsPage() {
   }
 
   const handleArchive = async (project: Project) => {
-    if (!confirm("確定要封存此專案嗎？")) return
+    if (!confirm("確定要封存此個案嗎？")) return
 
     try {
       await projectService.updateProject(project.id, { status: "archived" })
@@ -347,7 +347,7 @@ export function ProjectsPage() {
   if (isLoading) {
     return (
       <div className="space-y-6">
-        <h1 className="text-3xl font-bold">專案管理</h1>
+        <h1 className="text-xl font-bold">個案管理</h1>
         <Card>
           <CardContent className="py-12">
             <div className="text-center text-muted-foreground">載入中...</div>
@@ -361,12 +361,12 @@ export function ProjectsPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold">專案管理</h1>
-          <p className="text-muted-foreground">管理計畫下的專案與流程進度</p>
+          <h1 className="text-xl font-bold">個案管理</h1>
+          <p className="text-muted-foreground">管理計畫下的個案與流程進度</p>
         </div>
         <Button onClick={openCreateForm}>
           <Plus className="h-4 w-4 mr-1" />
-          新增專案
+          新增個案
         </Button>
       </div>
 
@@ -394,8 +394,8 @@ export function ProjectsPage() {
             <CardContent className="py-12">
               <div className="text-center text-muted-foreground">
                 {planFilter !== "all"
-                  ? "此計畫下尚無專案"
-                  : "尚無專案，點擊上方按鈕新增"}
+                  ? "此計畫下尚無個案"
+                  : "尚無個案，點擊上方按鈕新增"}
               </div>
             </CardContent>
           </Card>
@@ -499,8 +499,8 @@ export function ProjectsPage() {
       <Dialog open={isFormOpen} onOpenChange={setIsFormOpen}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
-            <DialogTitle>{editingProject ? "編輯專案" : "新增專案"}</DialogTitle>
-            <DialogDescription>填寫專案基本資訊</DialogDescription>
+            <DialogTitle>{editingProject ? "編輯個案" : "新增個案"}</DialogTitle>
+            <DialogDescription>填寫個案基本資訊</DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4">
@@ -525,7 +525,7 @@ export function ProjectsPage() {
             </div>
 
             <div className="space-y-2">
-              <Label>專案名稱 *</Label>
+              <Label>個案名稱 *</Label>
               <Input
                 value={formData.name}
                 onChange={(e) => setFormData({ ...formData, name: e.target.value })}
@@ -534,20 +534,20 @@ export function ProjectsPage() {
             </div>
 
             <div className="space-y-2">
-              <Label>專案描述</Label>
+              <Label>個案描述</Label>
               <textarea
                 className="flex min-h-20 w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm"
                 value={formData.description}
                 onChange={(e) =>
                   setFormData({ ...formData, description: e.target.value })
                 }
-                placeholder="描述專案內容..."
+                placeholder="描述個案內容..."
               />
             </div>
 
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label>專案類型</Label>
+                <Label>個案類型</Label>
                 <Select
                   value={formData.projectType}
                   onValueChange={(v) =>
@@ -822,7 +822,7 @@ export function ProjectsPage() {
           <DialogHeader>
             <DialogTitle>審批：{approvalStep?.name}</DialogTitle>
             <DialogDescription>
-              專案：{selectedProject?.name}
+              個案：{selectedProject?.name}
             </DialogDescription>
           </DialogHeader>
 

@@ -236,7 +236,7 @@ export interface Project {
   organizationId?: string  // Link to organization
   name: string
   description: string
-  projectNumber?: string  // 專案編號，如 JL-202409
+  projectNumber?: string  // 個案編號，如 JL-202409
 
   projectType: string
   budgetAmount: number

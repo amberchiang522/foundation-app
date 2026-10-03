@@ -308,7 +308,7 @@ export function ActivitiesManagePage() {
   if (isLoading) {
     return (
       <div className="space-y-6">
-        <h1 className="text-3xl font-bold">活動管理</h1>
+        <h1 className="text-xl font-bold">活動管理</h1>
         <Card>
           <CardContent className="py-12">
             <div className="text-center text-muted-foreground">載入中...</div>
@@ -322,7 +322,7 @@ export function ActivitiesManagePage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold">活動管理</h1>
+          <h1 className="text-xl font-bold">活動管理</h1>
           <p className="text-muted-foreground">管理志工活動與報名</p>
         </div>
         <Button onClick={openCreateForm}>
