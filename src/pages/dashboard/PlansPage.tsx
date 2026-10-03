@@ -2439,48 +2439,11 @@ export function PlansPage() {
               >
                 <div className="flex gap-3 py-4 px-2 bg-muted/30 rounded-lg w-max items-start">
                   {selectedProject.workflow.map((step, index) => {
-                    const hasSubTasks = step.subTasks && step.subTasks.length > 0
-                    const subTasksCompleted = step.subTasks?.filter((st) => st.completed).length || 0
-                    const totalSubTasks = step.subTasks?.length || 0
                     // 判斷是否為目前步驟：索引符合且狀態為 in_progress 或未設定狀態（向下相容舊資料）
                     const isCurrentStep = index === selectedProject.currentStep &&
                       (step.status === "in_progress" || !step.status || step.status === "pending" && index === 0)
                     // 判斷是否為還沒輪到的步驟：pending 狀態或未設定狀態且不是當前步驟
                     const isInactive = (step.status === "pending" || (!step.status && index > selectedProject.currentStep)) && !isCurrentStep
-
-                    // Get approver/assignee info
-                    // Get role info for display
-                    const getStepRoleInfo = () => {
-                      if (step.type === "establishment") {
-                        // Show specific users if assigned, otherwise tag or 不限
-                        const approver = step.approverUserIds?.length
-                          ? step.approverUserIds.map(getUserName).join(", ")
-                          : step.approverTagId
-                            ? getTagName(step.approverTagId)
-                            : "不限"
-                        return { label: "審核", role: approver }
-                      } else if (step.type === "approval") {
-                        const executor = step.assigneeUserIds?.length
-                          ? step.assigneeUserIds.map(getUserName).join(", ")
-                          : step.assigneeTagId
-                            ? getTagName(step.assigneeTagId)
-                            : "不限"
-                        const verifier = step.verifierUserIds?.length
-                          ? step.verifierUserIds.map(getUserName).join(", ")
-                          : step.verifierTagId
-                            ? getTagName(step.verifierTagId)
-                            : "不限"
-                        return { label: "執行", role: executor, verifierLabel: "驗收", verifierRole: verifier }
-                      } else if (step.type === "status") {
-                        // 結案步驟顯示執行/驗收：不需
-                        if (step.name.includes("結案")) {
-                          return { label: "執行", role: "不需", verifierLabel: "驗收", verifierRole: "不需" }
-                        }
-                        return { label: "負責", role: "不限" }
-                      }
-                      return null
-                    }
-                    const roleInfo = getStepRoleInfo()
 
                     // Get pending executions for this step
                     const stepPendingExecutions = stepExecutions.filter(

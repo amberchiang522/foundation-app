@@ -8,10 +8,8 @@ import {
   Users,
   Calendar,
   Clock,
-  FileCheck,
   ArrowRight,
   TrendingUp,
-  Briefcase,
   FolderKanban
 } from "lucide-react"
 
