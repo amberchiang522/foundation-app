@@ -1066,10 +1066,6 @@ export function PlansPage() {
     }
   }
 
-  const getTagName = (tagId: string) => {
-    return adminTags.find((t) => t.id === tagId)?.name || tagId
-  }
-
   const getOrganizationName = (orgId?: string) => {
     if (!orgId) return null
     return organizations.find((o) => o.id === orgId)?.name || orgId
