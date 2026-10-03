@@ -25,9 +25,10 @@ function getCorsHeaders(request: Request, env: Env): HeadersInit {
   const isAllowed = allowedOrigins.includes(origin) || allowedOrigins.includes('*')
 
   return {
-    'Access-Control-Allow-Origin': isAllowed ? origin : allowedOrigins[0],
-    'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Bucket, X-Path, X-Content-Type',
+    'Access-Control-Allow-Origin': isAllowed ? origin || '*' : allowedOrigins[0],
+    'Access-Control-Allow-Methods': 'GET, HEAD, POST, PUT, DELETE, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Bucket, X-Path, X-Content-Type, Range',
+    'Access-Control-Expose-Headers': 'Content-Length, Content-Range, Accept-Ranges',
     'Access-Control-Max-Age': '86400',
   }
 }
@@ -73,7 +74,7 @@ export default {
       }
 
       // Serve files: /file/{bucket}/{path}
-      if (path.startsWith('/file/') && request.method === 'GET') {
+      if (path.startsWith('/file/') && (request.method === 'GET' || request.method === 'HEAD')) {
         return handleGetFile(request, env, corsHeaders)
       }
 
@@ -251,7 +252,14 @@ async function handleGetFile(request: Request, env: Env, corsHeaders: HeadersIni
     })
   }
 
-  const object = await bucket.get(filePath)
+  // Check for Range header (PDF.js uses range requests)
+  const rangeHeader = request.headers.get('Range')
+
+  // For HEAD requests or range requests, we need object metadata first
+  const object = rangeHeader
+    ? await bucket.get(filePath, { range: parseRange(rangeHeader) })
+    : await bucket.get(filePath)
+
   if (!object) {
     return new Response(JSON.stringify({ error: 'File not found' }), {
       status: 404,
@@ -263,6 +271,34 @@ async function handleGetFile(request: Request, env: Env, corsHeaders: HeadersIni
   headers.set('Content-Type', object.httpMetadata?.contentType || 'application/octet-stream')
   headers.set('Cache-Control', 'public, max-age=31536000')
   headers.set('ETag', object.httpEtag)
+  headers.set('Accept-Ranges', 'bytes')
+  headers.set('Content-Length', object.size.toString())
+
+  // Handle HEAD request
+  if (request.method === 'HEAD') {
+    return new Response(null, { status: 200, headers })
+  }
+
+  // Handle Range request
+  if (rangeHeader && object.range) {
+    const { offset, length } = object.range as { offset: number; length: number }
+    headers.set('Content-Length', length.toString())
+    headers.set('Content-Range', `bytes ${offset}-${offset + length - 1}/${object.size}`)
+    return new Response(object.body, { status: 206, headers })
+  }
 
   return new Response(object.body, { headers })
+}
+
+function parseRange(rangeHeader: string): { offset: number; length?: number } | undefined {
+  const match = rangeHeader.match(/bytes=(\d+)-(\d*)/)
+  if (!match) return undefined
+
+  const start = parseInt(match[1], 10)
+  const end = match[2] ? parseInt(match[2], 10) : undefined
+
+  if (end !== undefined) {
+    return { offset: start, length: end - start + 1 }
+  }
+  return { offset: start }
 }
