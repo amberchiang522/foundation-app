@@ -2392,9 +2392,12 @@ export function PlansPage() {
                 >
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex-1 min-w-0">
-                      {/* Desktop: name + source type badge */}
+                      {/* Desktop: name + project number + source type badge */}
                       <div className="hidden md:flex items-center gap-2 flex-wrap">
                         <span className="font-medium truncate">{project.name}</span>
+                        {project.projectNumber && (
+                          <span className="text-xs text-muted-foreground shrink-0">{project.projectNumber}</span>
+                        )}
                         {project.description && (
                           <Badge variant="secondary" className="text-xs shrink-0">
                             {project.description}
@@ -2406,10 +2409,13 @@ export function PlansPage() {
                           </Badge>
                         )}
                       </div>
-                      {/* Mobile: name only (no badge) */}
+                      {/* Mobile: name + project number only (no badge) */}
                       <div className="md:hidden">
                         <div className="flex items-center gap-2">
                           <span className="font-medium truncate">{project.name}</span>
+                          {project.projectNumber && (
+                            <span className="text-xs text-muted-foreground shrink-0">{project.projectNumber}</span>
+                          )}
                           {project.status === "not_established" && (
                             <Badge variant="destructive" className="text-xs shrink-0">
                               不成立
