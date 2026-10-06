@@ -111,80 +111,71 @@ export function DashboardPage() {
         <>
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
             {/* 志工 Card */}
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-base flex items-center gap-2">
-                  <Users className="h-5 w-5" />
-                  志工
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div>
-                  <div className="text-3xl font-bold">{stats?.volunteers.total || 0} 人</div>
-                  <p className="text-sm text-muted-foreground mt-1">
-                    青年 {stats?.volunteers.youth || 0} / 社會 {stats?.volunteers.social || 0}
-                  </p>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm">
+            <Link to="/dashboard/volunteers">
+              <Card className="cursor-pointer transition-shadow hover:shadow-md">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <Users className="h-5 w-5" />
+                    志工
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div>
+                    <div className="text-3xl font-bold">{stats?.volunteers.total || 0} 人</div>
+                    <p className="text-sm text-muted-foreground mt-1">
+                      青年 {stats?.volunteers.youth || 0} / 社會 {stats?.volunteers.social || 0}
+                    </p>
+                  </div>
+                  <div className="text-sm">
                     {(stats?.volunteers.pending || 0) > 0 ? (
                       <span className="text-orange-600 font-medium">{stats?.volunteers.pending} 筆待審核</span>
                     ) : (
                       <span className="text-muted-foreground">無待審核申請</span>
                     )}
-                  </span>
-                  <Button asChild size="sm">
-                    <Link to="/dashboard/applications">審核申請</Link>
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
+                  </div>
+                </CardContent>
+              </Card>
+            </Link>
 
             {/* 活動 Card */}
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-base flex items-center gap-2">
-                  <Calendar className="h-5 w-5" />
-                  活動
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div>
-                  <div className="text-3xl font-bold">{stats?.activities.total || 0} 場</div>
-                  <p className="text-sm text-muted-foreground mt-1">
-                    進行中 {stats?.activities.upcoming || 0} / 已結束 {stats?.activities.completed || 0}
-                  </p>
-                </div>
-                <div className="flex items-center justify-end">
-                  <Button asChild size="sm">
-                    <Link to="/dashboard/activities">管理活動</Link>
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
+            <Link to="/dashboard/activities">
+              <Card className="cursor-pointer transition-shadow hover:shadow-md">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <Calendar className="h-5 w-5" />
+                    活動
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div>
+                    <div className="text-3xl font-bold">{stats?.activities.total || 0} 場</div>
+                    <p className="text-sm text-muted-foreground mt-1">
+                      進行中 {stats?.activities.upcoming || 0} / 已結束 {stats?.activities.completed || 0}
+                    </p>
+                  </div>
+                </CardContent>
+              </Card>
+            </Link>
 
             {/* 計畫個案 Card */}
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-base flex items-center gap-2">
-                  <FolderKanban className="h-5 w-5" />
-                  計畫個案
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div>
-                  <div className="text-3xl font-bold">{stats?.projects.activeProjects || 0} 個案</div>
-                  <p className="text-sm text-muted-foreground mt-1">
-                    進行中 · {stats?.projects.activePlans || 0} 個計畫
-                  </p>
-                </div>
-                <div className="flex items-center justify-end">
-                  <Button asChild size="sm">
-                    <Link to="/dashboard/plans">管理計畫</Link>
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
+            <Link to="/dashboard/plans">
+              <Card className="cursor-pointer transition-shadow hover:shadow-md">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <FolderKanban className="h-5 w-5" />
+                    計畫個案
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div>
+                    <div className="text-3xl font-bold">{stats?.projects.activeProjects || 0} 個案</div>
+                    <p className="text-sm text-muted-foreground mt-1">
+                      進行中 · {stats?.projects.activePlans || 0} 個計畫
+                    </p>
+                  </div>
+                </CardContent>
+              </Card>
+            </Link>
           </div>
         </>
       ) : (
