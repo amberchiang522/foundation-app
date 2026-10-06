@@ -26,7 +26,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { MultiImageUploader, MultiPDFUploader, StaticPDFInput, StaticMultiPDFInput, PDFPageViewer, DropZone, type StaticPDFData } from "@/components/upload"
+import { MultiImageUploader, StaticPDFInput, StaticMultiPDFInput, PDFPageViewer, DropZone, type StaticPDFData } from "@/components/upload"
 import { imageService, validateFile } from "@/services/imageService"
 import { useAuth } from "@/contexts/AuthContext"
 import { projectService, settingsService, organizationService, workflowService, userService, type ImageUploadResult } from "@/services"
@@ -4276,7 +4276,7 @@ export function PlansPage() {
                                                 })
                                                 if (validFiles.length === 0) return
                                                 try {
-                                                  const results = await imageService.uploadMultiple(validFiles, 'document')
+                                                  const results = await imageService.uploadMultiple(validFiles, 'receipt')
                                                   const existingAttachments = (step.attachments || []).map(att => ({
                                                     id: att.id,
                                                     originalUrl: att.originalUrl,
