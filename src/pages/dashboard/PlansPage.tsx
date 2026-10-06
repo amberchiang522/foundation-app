@@ -763,21 +763,24 @@ export function PlansPage() {
     const planCode = selectedPlan?.code || "XX"
     const prefix = `${planCode}${rocYear}${month}`
 
-    // Find next sequential number based on existing projects
+    // Find next sequential number based on existing projects (fills gaps)
     let nextSeq = 1
     if (projects.length > 0) {
       const matchingProjects = projects.filter(p => p.projectNumber?.startsWith(prefix))
-      const existingNumbers = matchingProjects
-        .map(p => {
-          const seq = p.projectNumber?.slice(prefix.length)
-          return seq ? parseInt(seq) : 0
-        })
-        .filter(n => !isNaN(n))
+      const existingNumbers = new Set(
+        matchingProjects
+          .map(p => {
+            const seq = p.projectNumber?.slice(prefix.length)
+            return seq ? parseInt(seq) : 0
+          })
+          .filter(n => !isNaN(n) && n > 0)
+      )
 
       console.log(`[個案編號] 前綴: ${prefix}, 符合的個案:`, matchingProjects.map(p => p.projectNumber))
 
-      if (existingNumbers.length > 0) {
-        nextSeq = Math.max(...existingNumbers) + 1
+      // Find the first available number (fills gaps)
+      while (existingNumbers.has(nextSeq)) {
+        nextSeq++
       }
     }
     const defaultProjectNumber = `${prefix}${String(nextSeq).padStart(3, '0')}`
