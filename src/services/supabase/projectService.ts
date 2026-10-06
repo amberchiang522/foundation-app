@@ -7,6 +7,7 @@ function transformPlan(row: Record<string, unknown>): Plan {
     name: row.name as string,
     description: (row.description as string) || '',
     type: (row.type as string) || '',
+    code: (row.code as string) || undefined,
     workflow: (row.workflow as Plan['workflow']) || [],
     status: row.status as Plan['status'],
     createdBy: row.created_by as string,
@@ -31,6 +32,7 @@ function transformProject(row: Record<string, unknown>): Project {
     name: row.name as string,
     description: (row.description as string) || '',
     projectType: (row.project_type as string) || '',
+    projectNumber: (row.project_number as string) || undefined,
     budgetAmount: row.budget_amount as number,
     resultImages: (row.result_images as Project['resultImages']) || [],
     receiptImages: (row.receipt_images as Project['receiptImages']) || [],
@@ -107,6 +109,7 @@ export const supabaseProjectService = {
         name: planData.name,
         description: planData.description,
         type: planData.type,
+        code: planData.code,
         workflow: planData.workflow,
         status: planData.status,
         created_by: userId,
@@ -134,6 +137,7 @@ export const supabaseProjectService = {
     if (planData.name !== undefined) updateData.name = planData.name
     if (planData.description !== undefined) updateData.description = planData.description
     if (planData.type !== undefined) updateData.type = planData.type
+    if (planData.code !== undefined) updateData.code = planData.code
     if (planData.workflow !== undefined) updateData.workflow = planData.workflow
     if (planData.status !== undefined) updateData.status = planData.status
     // 公開設定
@@ -241,6 +245,7 @@ export const supabaseProjectService = {
     if (projectData.description !== undefined) updateData.description = projectData.description
     if (projectData.organizationId !== undefined) updateData.organization_id = projectData.organizationId || null
     if (projectData.projectType !== undefined) updateData.project_type = projectData.projectType
+    if (projectData.projectNumber !== undefined) updateData.project_number = projectData.projectNumber
     if (projectData.budgetAmount !== undefined) updateData.budget_amount = projectData.budgetAmount
     if (projectData.resultImages !== undefined) updateData.result_images = projectData.resultImages
     if (projectData.receiptImages !== undefined) updateData.receipt_images = projectData.receiptImages
@@ -407,6 +412,60 @@ export const supabaseProjectService = {
       throw error
     }
     return transformWorkflowTemplate(newTemplate as Record<string, unknown>)
+  },
+
+  // Realtime subscription for a specific project
+  subscribeToProject(projectId: string, callback: (project: Project) => void): () => void {
+    const channel = supabase
+      .channel(`project-${projectId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'projects',
+          filter: `id=eq.${projectId}`,
+        },
+        (payload) => {
+          const project = transformProject(payload.new as Record<string, unknown>)
+          callback(project)
+        }
+      )
+      .subscribe()
+
+    // Return unsubscribe function
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  },
+
+  // Update only the step note field (for auto-save)
+  async updateStepNote(
+    projectId: string,
+    stepIndex: number,
+    noteData: Record<string, unknown>
+  ): Promise<Project | null> {
+    // First fetch the current project
+    const project = await this.getProjectById(projectId)
+    if (!project) return null
+
+    // Merge the new note data with existing
+    const workflow = [...project.workflow]
+    const currentNote = workflow[stepIndex]?.note
+    let existingData: Record<string, unknown> = {}
+    try {
+      if (currentNote) {
+        existingData = JSON.parse(currentNote)
+      }
+    } catch {}
+
+    // Merge and save
+    workflow[stepIndex] = {
+      ...workflow[stepIndex],
+      note: JSON.stringify({ ...existingData, ...noteData }),
+    }
+
+    return this.updateProject(projectId, { workflow })
   },
 
   // Stats

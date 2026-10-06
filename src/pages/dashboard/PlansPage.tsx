@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef } from "react"
-import { useNavigate } from "react-router-dom"
+import { useNavigate, useSearchParams } from "react-router-dom"
 import { format } from "date-fns"
+// Auto-save disabled due to causing infinite loop issues
+// import { useEvaluationAutoSave } from "@/hooks/useEvaluationAutoSave"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -24,7 +26,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { MultiImageUploader, StaticPDFInput, StaticMultiPDFInput, PDFPageViewer, DropZone, type StaticPDFData } from "@/components/upload"
+import { MultiImageUploader, MultiPDFUploader, StaticPDFInput, StaticMultiPDFInput, PDFPageViewer, DropZone, type StaticPDFData } from "@/components/upload"
 import { imageService, validateFile } from "@/services/imageService"
 import { useAuth } from "@/contexts/AuthContext"
 import { projectService, settingsService, organizationService, workflowService, userService, type ImageUploadResult } from "@/services"
@@ -72,6 +74,7 @@ type MobileView = "plans" | "projects" | "detail"
 export function PlansPage() {
   const { user } = useAuth()
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
   const [plans, setPlans] = useState<Plan[]>([])
   const [projects, setProjects] = useState<Project[]>([])
   const [templates, setTemplates] = useState<WorkflowTemplate[]>([])
@@ -258,9 +261,27 @@ export function PlansPage() {
   })
   const [closingAttachments, setClosingAttachments] = useState<ImageUploadResult[]>([])
 
+  // 評估表補助類型和用途追蹤
+  const [evalSubsidyType, setEvalSubsidyType] = useState<'oneTime' | 'periodic' | ''>('')
+  const [evalPurpose, setEvalPurpose] = useState<string>('')
+
+  // 自動儲存功能已停用（造成無限循環問題）
+  // const evalStepIndex = selectedProject?.workflow.findIndex(s => s.name.includes("評估")) ?? -1
+  const isEvalSaving = false
+  const evalConflict = null
+  const resolveEvalConflict = (_useLocal: boolean) => {}
+
   // Inline execution form content (using ref to avoid re-render/focus issues)
   const inlineExecContentRef = useRef<HTMLTextAreaElement>(null)
   const [inlineExecAttachments, setInlineExecAttachments] = useState<ImageUploadResult[]>([])
+
+  // PDF 生成狀態
+  const [isGeneratingPdf, setIsGeneratingPdf] = useState(false)
+  const [pdfReplaceDialog, setPdfReplaceDialog] = useState<{
+    open: boolean
+    existingPdf?: { id: string; url: string; fileName: string; fileSize?: number; uploadedAt?: string }
+    newPdfData?: { id: string; url: string; fileName: string; fileSize: number; uploadedAt: string }
+  }>({ open: false })
 
 
   // Edit mode for pending executions
@@ -278,6 +299,80 @@ export function PlansPage() {
   useEffect(() => {
     loadData()
   }, [])
+
+  // 當選擇的個案變更時，同步評估表補助類型和用途狀態
+  useEffect(() => {
+    if (selectedProject) {
+      const evalStep = selectedProject.workflow.find(s => s.name.includes("評估"))
+      if (evalStep?.note) {
+        try {
+          const evalData = JSON.parse(evalStep.note)
+          setEvalSubsidyType(evalData.subsidyType || '')
+          // purposes 現在是單選，取第一個
+          const purposes = evalData.purposes || []
+          setEvalPurpose(purposes.length > 0 ? purposes[0] : (selectedProject.projectType || ''))
+        } catch {
+          setEvalSubsidyType('')
+          setEvalPurpose(selectedProject.projectType || '')
+        }
+      } else {
+        setEvalSubsidyType('')
+        setEvalPurpose(selectedProject.projectType || '')
+      }
+    }
+  }, [selectedProject?.id])
+
+  // 當選擇的個案變更時，載入評議委員會表單的資料（從 step.note 或從評估表帶入）
+  useEffect(() => {
+    if (selectedProject) {
+      const committeeStep = selectedProject.workflow.find(s => s.name.includes("評議委員會"))
+      if (committeeStep?.note) {
+        try {
+          const noteData = JSON.parse(committeeStep.note)
+          setCommitteeForm({
+            meetingDate: noteData.meetingDate || '',
+            purposes: noteData.purposes || [],
+            subsidyType: noteData.subsidyType || '',
+            oneTimeMonth: noteData.oneTimeMonth || '',
+            oneTimeAmount: noteData.oneTimeAmount || '',
+            periodStart: noteData.periodStart || '',
+            periodEnd: noteData.periodEnd || '',
+            frequency: noteData.frequency || '',
+            periodicMonths: noteData.periodicMonths || '',
+            periodicAmount: noteData.periodicAmount || '',
+          })
+        } catch {
+          // 解析失敗，重置為空表單
+          setCommitteeForm({
+            meetingDate: '',
+            purposes: [],
+            subsidyType: '',
+            oneTimeMonth: '',
+            oneTimeAmount: '',
+            periodStart: '',
+            periodEnd: '',
+            frequency: '',
+            periodicMonths: '',
+            periodicAmount: '',
+          })
+        }
+      } else {
+        // 沒有 note，重置為空表單
+        setCommitteeForm({
+          meetingDate: '',
+          purposes: [],
+          subsidyType: '',
+          oneTimeMonth: '',
+          oneTimeAmount: '',
+          periodStart: '',
+          periodEnd: '',
+          frequency: '',
+          periodicMonths: '',
+          periodicAmount: '',
+        })
+      }
+    }
+  }, [selectedProject?.id, selectedProject?.workflow])
 
   const loadData = async () => {
     try {
@@ -310,6 +405,46 @@ export function PlansPage() {
       loadProjectExecutions(selectedProject.id)
     }
   }, [selectedProject])
+
+  // 從 URL 參數讀取並選擇個案（卡片模式）- 只在資料載入完成後執行一次
+  const urlProjectHandledRef = useRef(false)
+  useEffect(() => {
+    if (isLoading || urlProjectHandledRef.current) return
+
+    const caseId = searchParams.get('case')
+    if (caseId && projects.length > 0 && plans.length > 0 && viewMode === 'card') {
+      // 優先用個案編號查找，fallback 到名稱
+      const project = projects.find(p => p.projectNumber === caseId) || projects.find(p => p.name === caseId)
+      if (project) {
+        urlProjectHandledRef.current = true
+        // 先選擇對應的計畫
+        const plan = plans.find(p => p.id === project.planId)
+        if (plan) {
+          setSelectedPlan(plan)
+        }
+        // 再選擇個案
+        setSelectedProject(project)
+        loadProjectExecutions(project.id)
+        setMobileView("detail")
+        // 初始化評估表狀態
+        const evalStep = project.workflow.find(s => s.name.includes("評估"))
+        if (evalStep?.note) {
+          try {
+            const evalData = JSON.parse(evalStep.note)
+            setEvalSubsidyType(evalData.subsidyType || '')
+            const purposes = evalData.purposes || []
+            setEvalPurpose(purposes.length > 0 ? purposes[0] : (project.projectType || ''))
+          } catch {
+            setEvalSubsidyType('')
+            setEvalPurpose(project.projectType || '')
+          }
+        } else {
+          setEvalSubsidyType('')
+          setEvalPurpose(project.projectType || '')
+        }
+      }
+    }
+  }, [isLoading, projects, plans, viewMode, searchParams])
 
 
   const loadProjectExecutions = async (projectId: string) => {
@@ -350,7 +485,7 @@ export function PlansPage() {
   // Plan operations
   const handleSelectPlan = (plan: Plan) => {
     setSelectedPlan(plan)
-    setSelectedProject(null)
+    handleClearSelectedProject()
     setMobileView("projects")
   }
 
@@ -511,10 +646,38 @@ export function PlansPage() {
   }
 
   // Project operations
-  const handleSelectProject = (project: Project) => {
+  const handleSelectProject = (project: Project, updateUrl = true) => {
     setSelectedProject(project)
     loadProjectExecutions(project.id)
     setMobileView("detail")
+    // 卡片模式下更新 URL（使用個案編號）
+    if (updateUrl && viewMode === 'card') {
+      setSearchParams({ case: project.projectNumber || project.name })
+    }
+    // 初始化評估表補助類型和用途狀態
+    const evalStep = project.workflow.find(s => s.name.includes("評估"))
+    if (evalStep?.note) {
+      try {
+        const evalData = JSON.parse(evalStep.note)
+        setEvalSubsidyType(evalData.subsidyType || '')
+        const purposes = evalData.purposes || []
+        setEvalPurpose(purposes.length > 0 ? purposes[0] : (project.projectType || ''))
+      } catch {
+        setEvalSubsidyType('')
+        setEvalPurpose(project.projectType || '')
+      }
+    } else {
+      setEvalSubsidyType('')
+      setEvalPurpose(project.projectType || '')
+    }
+  }
+
+  // 清除選擇的個案（並清除 URL 參數）
+  const handleClearSelectedProject = () => {
+    setSelectedProject(null)
+    if (viewMode === 'card') {
+      setSearchParams({})
+    }
   }
 
   // Check if project workflow needs sync with plan
@@ -596,23 +759,29 @@ export function PlansPage() {
     const now = new Date()
     const rocYear = now.getFullYear() - 1911  // 民國年
     const month = String(now.getMonth() + 1).padStart(2, '0')
-    const prefix = selectedPlan?.code ? `${selectedPlan.code}${rocYear}${month}` : ""
+    // Use plan code, or fallback to "XX" if no code is set
+    const planCode = selectedPlan?.code || "XX"
+    const prefix = `${planCode}${rocYear}${month}`
 
     // Find next sequential number based on existing projects
     let nextSeq = 1
-    if (prefix && projects.length > 0) {
-      const existingNumbers = projects
-        .filter(p => p.projectNumber?.startsWith(prefix))
+    if (projects.length > 0) {
+      const matchingProjects = projects.filter(p => p.projectNumber?.startsWith(prefix))
+      const existingNumbers = matchingProjects
         .map(p => {
           const seq = p.projectNumber?.slice(prefix.length)
           return seq ? parseInt(seq) : 0
         })
         .filter(n => !isNaN(n))
+
+      console.log(`[個案編號] 前綴: ${prefix}, 符合的個案:`, matchingProjects.map(p => p.projectNumber))
+
       if (existingNumbers.length > 0) {
         nextSeq = Math.max(...existingNumbers) + 1
       }
     }
-    const defaultProjectNumber = prefix ? `${prefix}${String(nextSeq).padStart(3, '0')}` : ""
+    const defaultProjectNumber = `${prefix}${String(nextSeq).padStart(3, '0')}`
+    console.log(`[個案編號] 產生的編號: ${defaultProjectNumber}`)
 
     setProjectFormData({
       name: project?.name || "",
@@ -1107,6 +1276,34 @@ export function PlansPage() {
 
   // 定義統一的流程步驟名稱
   const workflowStepNames = ['審核', '評估表', '評議委員會', '文件寄發及簽核', '結案與追蹤']
+
+  // 評估標準定義
+  const EVALUATION_CRITERIA = [
+    { id: 'economic', name: '經濟狀況', description: '家庭收入、工作狀況程度評估（依經濟困難程度給分，越困難越高分）', maxScore: 25 },
+    { id: 'family', name: '家庭支持情形', description: '家庭照顧能力、親屬支援之家庭資源評估（依家庭支持程度給分，越不足分數越高）', maxScore: 20 },
+    { id: 'health', name: '健康狀況', description: '評估健康對生活及工作能力之影響（依健康影響程度，影響越大分數越高）', maxScore: 15 },
+    { id: 'living', name: '基本生活需求', description: '依基本生活需求及生活困難程度綜合評估（依生活困難程度，越困難越高分）', maxScore: 15 },
+    { id: 'resources', name: '外部資源取得情形', description: '是否有政府補助、民間資源及其他協助（外部資源越不足，分數越高）', maxScore: 10 },
+    { id: 'documents', name: '文件完整性', description: '申請資料與佐證是否齊全（文件越齊全，分數越高）', maxScore: 5 },
+    { id: 'committee', name: '顧問暨評議委員會綜合評估', description: '由委員綜合評估', maxScore: 10 },
+  ]
+
+  // 解析評估資料
+  const parseEvaluationData = (note: string | undefined) => {
+    if (!note) return null
+    try {
+      const data = JSON.parse(note)
+      if (data.evaluationScores) return data
+      return null
+    } catch {
+      return null
+    }
+  }
+
+  // 計算總分
+  const calculateTotalScore = (scores: Record<string, { score: number; note: string }>) => {
+    return Object.values(scores).reduce((sum, item) => sum + (item.score || 0), 0)
+  }
 
   // Plans Cards Component (Top Section) - Only shows when no plan is selected
   const PlansCards = () => {
@@ -2331,7 +2528,7 @@ export function PlansPage() {
                   setFlowProjectModal(null)
                   setSelectedProject(null)
                 } else {
-                  setSelectedProject(null)
+                  handleClearSelectedProject()
                   setMobileView("projects")
                 }
               }}
@@ -2410,7 +2607,7 @@ export function PlansPage() {
                 variant="ghost"
                 size="sm"
                 className="hidden md:flex ml-2"
-                onClick={() => setSelectedProject(null)}
+                onClick={() => handleClearSelectedProject()}
               >
                 <XCircle className="h-5 w-5" />
               </Button>
@@ -2425,7 +2622,7 @@ export function PlansPage() {
               <div className="flex items-center justify-between mb-3">
                 <h3 className="font-medium">流程進度</h3>
                 <span className="text-xs text-muted-foreground">
-                  建立於 {format(new Date(selectedProject.createdAt), "yyyy/MM/dd HH:mm")}
+                  建立於 {format(new Date(selectedProject.createdAt), "yyyy/MM/dd")}
                 </span>
               </div>
               {/* 橫向滾動容器 */}
@@ -2803,8 +3000,72 @@ export function PlansPage() {
                                     variant="ghost"
                                     size="icon"
                                     className="h-6 w-6"
-                                    onClick={() => {
+                                    onClick={async () => {
                                       const stepId = step.id
+
+                                      // 如果是評估表，先儲存資料
+                                      if (step.name.includes("評估") && selectedProject) {
+                                        try {
+                                          // 收集評估分數和說明
+                                          const evaluationScores: Record<string, { score: number; note: string }> = {}
+                                          EVALUATION_CRITERIA.forEach(criteria => {
+                                            const scoreInput = document.querySelector(`input[data-eval-score="${criteria.id}"]`) as HTMLInputElement
+                                            const noteInput = document.querySelector(`textarea[data-eval-note="${criteria.id}"]`) as HTMLTextAreaElement
+                                            evaluationScores[criteria.id] = {
+                                              score: scoreInput ? parseInt(scoreInput.value) || 0 : 0,
+                                              note: noteInput?.value || ''
+                                            }
+                                          })
+
+                                          // 收集綜合評估
+                                          const conclusionInput = document.querySelector(`textarea[data-eval-conclusion="true"]`) as HTMLTextAreaElement
+                                          const conclusion = conclusionInput?.value || ''
+
+                                          // 收集補助用途和類型
+                                          const purposes: string[] = evalPurpose ? [evalPurpose] : []
+                                          const subsidyType = evalSubsidyType
+
+                                          // 收集補助詳細資料
+                                          const oneTimeMonth = (document.getElementById(`eval-oneTimeMonth-${step.id}`) as HTMLInputElement)?.value || ''
+                                          const oneTimeAmount = (document.getElementById(`eval-oneTimeAmount-${step.id}`) as HTMLInputElement)?.value || ''
+                                          const periodStart = (document.getElementById(`eval-periodStart-${step.id}`) as HTMLInputElement)?.value || ''
+                                          const periodEnd = (document.getElementById(`eval-periodEnd-${step.id}`) as HTMLInputElement)?.value || ''
+                                          const isMonthly = (document.getElementById(`eval-frequency-monthly-${step.id}`) as HTMLInputElement)?.checked
+                                          const frequency = isMonthly ? 'monthly' : 'periodic'
+                                          const periodicMonths = (document.getElementById(`eval-periodicMonths-${step.id}`) as HTMLInputElement)?.value || ''
+                                          const periodicAmount = (document.getElementById(`eval-periodicAmount-${step.id}`) as HTMLInputElement)?.value || ''
+
+                                          // 更新 workflow
+                                          const newWorkflow = [...selectedProject.workflow]
+                                          const evalStep = newWorkflow[originalIndex]
+                                          evalStep.note = JSON.stringify({
+                                            evaluationScores,
+                                            conclusion,
+                                            purposes,
+                                            subsidyType,
+                                            oneTimeMonth,
+                                            oneTimeAmount,
+                                            periodStart,
+                                            periodEnd,
+                                            frequency: subsidyType === 'periodic' ? frequency : '',
+                                            periodicMonths,
+                                            periodicAmount,
+                                            totalScore: Object.values(evaluationScores).reduce((sum, item) => sum + item.score, 0)
+                                          })
+
+                                          await projectService.updateProject(selectedProject.id, {
+                                            workflow: newWorkflow,
+                                          })
+
+                                          // 重新載入專案資料
+                                          const updated = await projectService.getProjectById(selectedProject.id)
+                                          if (updated) setSelectedProject(updated)
+                                        } catch (error) {
+                                          console.error('Failed to save evaluation:', error)
+                                          alert('儲存失敗，請稍後再試')
+                                        }
+                                      }
+
                                       setEditingStepId(null)
                                       requestAnimationFrame(() => {
                                         requestAnimationFrame(() => {
@@ -2855,321 +3116,17 @@ export function PlansPage() {
                                     : "待處理"}
                                 </Badge>
                               )}
-                              {/* Assignment display - editable for super_admin, read-only for others */}
-                              {step.status === "in_progress" && user?.role === "super_admin" && (
-                                <div className="flex items-center gap-2 ml-2 flex-wrap">
-                                  {/* Executor Assignment for approval steps (not evaluation) */}
-                                  {step.type === "approval" && !step.name.includes("評估") && (
-                                    <div className="flex items-center gap-1">
-                                      <span className="text-xs text-muted-foreground">執行:</span>
-                                      {step.assigneeUserIds?.map((uid) => (
-                                        <Badge key={uid} variant="secondary" className="text-xs h-5 gap-1">
-                                          {getUserName(uid)}
-                                          <button
-                                            type="button"
-                                            onClick={() => updateStepAssignees(
-                                              selectedProject,
-                                              originalIndex,
-                                              "assignee",
-                                              step.assigneeUserIds?.filter((id) => id !== uid) || []
-                                            )}
-                                            className="hover:text-destructive"
-                                          >
-                                            <XCircle className="h-3 w-3" />
-                                          </button>
-                                        </Badge>
-                                      ))}
-                                      <Select
-                                        value=""
-                                        onValueChange={(value) => {
-                                          if (value) {
-                                            updateStepAssignees(
-                                              selectedProject,
-                                              originalIndex,
-                                              "assignee",
-                                              [...(step.assigneeUserIds || []), value]
-                                            )
-                                          }
-                                        }}
-                                      >
-                                        <SelectTrigger className="h-5 text-xs w-16 px-1">
-                                          <Plus className="h-3 w-3" />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                          {staffMembers
-                                            .filter((s) => !step.assigneeUserIds?.includes(s.id))
-                                            .filter((s) => !step.assigneeTagId || s.adminTags?.includes(step.assigneeTagId))
-                                            .map((staff) => (
-                                              <SelectItem key={staff.id} value={staff.id} className="text-xs">
-                                                {staff.name}
-                                              </SelectItem>
-                                            ))}
-                                        </SelectContent>
-                                      </Select>
-                                    </div>
-                                  )}
-                                  {/* Verifier Assignment for approval steps (not evaluation) */}
-                                  {step.type === "approval" && !step.name.includes("評估") && (
-                                    <div className="flex items-center gap-1">
-                                      <span className="text-xs text-muted-foreground">驗收:</span>
-                                      {step.verifierUserIds?.map((uid) => (
-                                        <Badge key={uid} variant="secondary" className="text-xs h-5 gap-1">
-                                          {getUserName(uid)}
-                                          <button
-                                            type="button"
-                                            onClick={() => updateStepAssignees(
-                                              selectedProject,
-                                              originalIndex,
-                                              "verifier",
-                                              step.verifierUserIds?.filter((id) => id !== uid) || []
-                                            )}
-                                            className="hover:text-destructive"
-                                          >
-                                            <XCircle className="h-3 w-3" />
-                                          </button>
-                                        </Badge>
-                                      ))}
-                                      <Select
-                                        value=""
-                                        onValueChange={(value) => {
-                                          if (value) {
-                                            updateStepAssignees(
-                                              selectedProject,
-                                              originalIndex,
-                                              "verifier",
-                                              [...(step.verifierUserIds || []), value]
-                                            )
-                                          }
-                                        }}
-                                      >
-                                        <SelectTrigger className="h-5 text-xs w-16 px-1">
-                                          <Plus className="h-3 w-3" />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                          {staffMembers
-                                            .filter((s) => !step.verifierUserIds?.includes(s.id))
-                                            .filter((s) => !step.verifierTagId || s.adminTags?.includes(step.verifierTagId))
-                                            .map((staff) => (
-                                              <SelectItem key={staff.id} value={staff.id} className="text-xs">
-                                                {staff.name}
-                                              </SelectItem>
-                                            ))}
-                                        </SelectContent>
-                                      </Select>
-                                    </div>
-                                  )}
-                                  {/* Approver Assignment for establishment steps */}
-                                  {step.type === "establishment" && (
-                                    <div className="flex items-center gap-1">
-                                      <span className="text-xs text-muted-foreground">審核:</span>
-                                      {step.approverUserIds?.map((uid) => (
-                                        <Badge key={uid} variant="secondary" className="text-xs h-5 gap-1">
-                                          {getUserName(uid)}
-                                          <button
-                                            type="button"
-                                            onClick={() => updateStepAssignees(
-                                              selectedProject,
-                                              originalIndex,
-                                              "approver",
-                                              step.approverUserIds?.filter((id) => id !== uid) || []
-                                            )}
-                                            className="hover:text-destructive"
-                                          >
-                                            <XCircle className="h-3 w-3" />
-                                          </button>
-                                        </Badge>
-                                      ))}
-                                      <Select
-                                        value=""
-                                        onValueChange={(value) => {
-                                          if (value) {
-                                            updateStepAssignees(
-                                              selectedProject,
-                                              originalIndex,
-                                              "approver",
-                                              [...(step.approverUserIds || []), value]
-                                            )
-                                          }
-                                        }}
-                                      >
-                                        <SelectTrigger className="h-5 text-xs w-16 px-1">
-                                          <Plus className="h-3 w-3" />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                          {staffMembers
-                                            .filter((s) => !step.approverUserIds?.includes(s.id))
-                                            .filter((s) => !step.approverTagId || s.adminTags?.includes(step.approverTagId))
-                                            .map((staff) => (
-                                              <SelectItem key={staff.id} value={staff.id} className="text-xs">
-                                                {staff.name}
-                                              </SelectItem>
-                                            ))}
-                                        </SelectContent>
-                                      </Select>
-                                    </div>
-                                  )}
-                                </div>
-                              )}
-                              {/* Read-only assignment display for non-super_admin */}
-                              {step.status === "in_progress" && user?.role !== "super_admin" && (
-                                <div className="flex items-center gap-2 ml-2 text-xs text-muted-foreground">
-                                  {step.type === "approval" && (
-                                    <>
-                                      {(step.assigneeUserIds?.length || 0) > 0 && (
-                                        <span>執行: {step.assigneeUserIds?.map(getUserName).join(", ")}</span>
-                                      )}
-                                      {(step.verifierUserIds?.length || 0) > 0 && (
-                                        <span>驗收: {step.verifierUserIds?.map(getUserName).join(", ")}</span>
-                                      )}
-                                    </>
-                                  )}
-                                  {step.type === "establishment" && (step.approverUserIds?.length || 0) > 0 && (
-                                    <span>審核: {step.approverUserIds?.map(getUserName).join(", ")}</span>
-                                  )}
-                                </div>
-                              )}
+                              {/* Assignment display removed - 執行/驗收功能已停用 */}
                             </div>
                           </div>
 
                           {/* Content Area */}
                           {hasContent && (
                             <div className="space-y-3">
-                              {/* 評估表：始終顯示附件、預期金額和評議委員會日期 */}
+                              {/* 評估表：顯示評估標準表格 */}
                               {step.name.includes("評估") && (
                                 <div className="space-y-4" id={`eval-form-${step.id}`}>
-                                    {/* 評估表附件 - 水平滾動 */}
-                                    {((step.attachments && step.attachments.length > 0) || canEditStep()) && (
-                                      <div
-                                        className="overflow-x-auto -mx-4 px-4 snap-x snap-mandatory md:snap-none"
-                                        style={{ WebkitOverflowScrolling: 'touch' }}
-                                      >
-                                        <div className="flex gap-4 items-start" style={{ width: 'max-content' }}>
-                                          {step.attachments?.map((attachment) => (
-                                            <div key={attachment.id} className="flex-shrink-0 snap-center w-[90vw] md:w-auto flex items-center justify-center">
-                                              {attachment.mimeType === "application/pdf" ? (
-                                                <PDFPageViewer
-                                                  url={attachment.originalUrl}
-                                                  pageHeight="60vh"
-                                                />
-                                              ) : (
-                                                <button
-                                                  type="button"
-                                                  onClick={() => setPreviewFile({
-                                                    url: attachment.originalUrl,
-                                                    type: attachment.mimeType,
-                                                    name: attachment.fileName
-                                                  })}
-                                                  className="group relative hover:opacity-90 transition-opacity"
-                                                >
-                                                  <img
-                                                    src={attachment.thumbnailUrl || attachment.originalUrl}
-                                                    alt={attachment.fileName}
-                                                    className="h-[60vh] w-auto max-w-[90vw] md:max-w-none object-contain rounded"
-                                                  />
-                                                  <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center rounded">
-                                                    <Eye className="h-8 w-8 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
-                                                  </div>
-                                                </button>
-                                              )}
-                                            </div>
-                                          ))}
-                                          {/* 上傳按鈕 - 編輯模式 */}
-                                          {canEditStep() && (
-                                            <div className="flex-shrink-0 snap-center h-[60vh] w-[90vw] md:w-[180px] flex items-center justify-center">
-                                              <DropZone
-                                                accept="image/*,application/pdf"
-                                                multiple
-                                                className="h-full w-full md:w-[180px]"
-                                                onFilesSelected={async (files) => {
-                                                  const container = projectDetailScrollRef.current; const scrollTop = container?.scrollTop || 0
-                                                  const validFiles = files.filter(file => {
-                                                    const validation = validateFile(file, 'receipt')
-                                                    return validation.valid
-                                                  })
-                                                  if (validFiles.length === 0) return
-                                                  try {
-                                                    const results = await imageService.uploadMultiple(validFiles, 'receipt')
-                                                    const existingAttachments = (step.attachments || []).map(att => ({
-                                                      id: att.id,
-                                                      originalUrl: att.originalUrl,
-                                                      thumbnailUrl: att.thumbnailUrl,
-                                                      fileName: att.fileName,
-                                                      fileSize: att.fileSize,
-                                                      mimeType: att.mimeType,
-                                                      order: att.order,
-                                                    }))
-                                                    const startOrder = existingAttachments.length
-                                                    const newAttachments = results.map((img, idx) => ({
-                                                      ...img,
-                                                      order: startOrder + idx,
-                                                    }))
-                                                    updateStepAttachments(selectedProject, originalIndex, [...existingAttachments, ...newAttachments])
-                                                    setTimeout(() => { if (projectDetailScrollRef.current) projectDetailScrollRef.current.scrollTop = scrollTop }, 100)
-                                                  } catch (err) {
-                                                    console.error('Upload failed:', err)
-                                                  }
-                                                }}
-                                              />
-                                            </div>
-                                          )}
-                                        </div>
-                                      </div>
-                                    )}
-
-                                    {/* 預期金額 & 評議委員會日期 */}
-                                    <div className="grid grid-cols-2 gap-4">
-                                      <div className="space-y-2">
-                                        <Label>預期金額</Label>
-                                        {canEditStep() ? (
-                                          <Input
-                                            type="text"
-                                            inputMode="numeric"
-                                            placeholder="輸入預期補助金額..."
-                                            defaultValue={step.note || ""}
-                                            data-budget-input={step.id}
-                                          />
-                                        ) : step.note ? (
-                                          <div className="text-sm font-medium">{step.note}</div>
-                                        ) : <div className="text-sm text-muted-foreground">-</div>}
-                                      </div>
-                                      <div className="space-y-2">
-                                        <Label>評議委員會日期</Label>
-                                        {canEditStep() ? (
-                                          <Input
-                                            type="date"
-                                            id={`committee-date-inline-${step.id}`}
-                                            defaultValue={(() => {
-                                              // Get the date from next step (評議委員會)
-                                              const nextStep = selectedProject.workflow[originalIndex + 1]
-                                              return nextStep?.subTasks?.[0]?.note || ""
-                                            })()}
-                                            onChange={async (e) => {
-                                              // Update the 評議委員會 step's subTask note with the date
-                                              const nextStepIndex = originalIndex + 1
-                                              if (nextStepIndex < selectedProject.workflow.length) {
-                                                const newWorkflow = [...selectedProject.workflow]
-                                                const nextStep = newWorkflow[nextStepIndex]
-                                                if (nextStep.subTasks && nextStep.subTasks.length > 0) {
-                                                  nextStep.subTasks[0].note = e.target.value
-                                                  await projectService.updateProject(selectedProject.id, { workflow: newWorkflow })
-                                                  const updated = await projectService.getProjectById(selectedProject.id)
-                                                  if (updated) setSelectedProject(updated)
-                                                }
-                                              }
-                                            }}
-                                          />
-                                        ) : (
-                                          <div className="text-sm font-medium">
-                                            {(() => {
-                                              const nextStep = selectedProject.workflow[originalIndex + 1]
-                                              return nextStep?.subTasks?.[0]?.note || "-"
-                                            })()}
-                                          </div>
-                                        )}
-                                      </div>
-                                    </div>
-
-                                    {/* 訪視紀錄 - 只有個人申請才顯示 */}
+                                    {/* 訪視紀錄 - 只有個人申請才顯示，放在最上面 */}
                                     {selectedProject.description === "個人" && (
                                       <div className="space-y-3 p-4 border rounded-lg bg-muted/30">
                                         <div className="font-medium">訪視紀錄</div>
@@ -3192,7 +3149,6 @@ export function PlansPage() {
                                                     } catch { return {} }
                                                   })()
                                                   currentData.date = e.target.value
-                                                  // Store visit data in a special way
                                                   const visitData: ImageData = {
                                                     id: "visit-record",
                                                     originalUrl: "",
@@ -3303,6 +3259,522 @@ export function PlansPage() {
                                         </div>
                                       </div>
                                     )}
+
+                                    {/* 評估標準表格 */}
+                                    {(() => {
+                                      const evalData = parseEvaluationData(step.note)
+                                      const scores = evalData?.evaluationScores || {}
+                                      const totalScore = calculateTotalScore(scores)
+                                      const maxTotal = EVALUATION_CRITERIA.reduce((sum, c) => sum + c.maxScore, 0)
+
+                                      return (
+                                        <div className="border rounded-lg overflow-hidden">
+                                          <table className="w-full text-sm">
+                                            <thead className="bg-muted/50">
+                                              <tr>
+                                                <th className="text-left p-4 font-medium border-b w-[35%]">評估標準</th>
+                                                <th className="text-center p-4 font-medium border-b w-16">得分</th>
+                                                <th className="text-left p-4 font-medium border-b">說明</th>
+                                              </tr>
+                                            </thead>
+                                            <tbody>
+                                              {EVALUATION_CRITERIA.map((criteria) => {
+                                                const scoreData = scores[criteria.id] || { score: 0, note: '' }
+                                                // 分離名稱和描述（括號內容）
+                                                const descParts = criteria.description.match(/^(.+?)（(.+)）$/)
+                                                const mainDesc = descParts ? descParts[1] : criteria.description
+                                                const subDesc = descParts ? `（${descParts[2]}）` : ''
+                                                return (
+                                                  <tr key={criteria.id} className="border-b last:border-b-0">
+                                                    <td className="p-4 align-top">
+                                                      <div className="font-medium">{criteria.name}</div>
+                                                      <div className="text-xs text-muted-foreground mt-2">{mainDesc}</div>
+                                                      {subDesc && <div className="text-xs text-muted-foreground mt-1">{subDesc}</div>}
+                                                    </td>
+                                                    <td className="p-4 text-center align-top">
+                                                      <div className="flex items-center justify-center gap-0.5">
+                                                        {canEditStep() ? (
+                                                          <>
+                                                            <input
+                                                              key={`score-${criteria.id}-${scoreData.score}`}
+                                                              type="text"
+                                                              inputMode="numeric"
+                                                              className="w-10 text-center border rounded-md p-1.5 text-sm [appearance:textfield]"
+                                                              defaultValue={scoreData.score || ''}
+                                                              placeholder="0"
+                                                              data-eval-score={criteria.id}
+                                                              data-max-score={criteria.maxScore}
+                                                              onChange={(e) => {
+                                                                const val = parseInt(e.target.value) || 0
+                                                                if (val > criteria.maxScore) {
+                                                                  e.target.value = String(criteria.maxScore)
+                                                                } else if (val < 0) {
+                                                                  e.target.value = '0'
+                                                                }
+                                                              }}
+                                                            />
+                                                            <span className="text-muted-foreground">/{criteria.maxScore}</span>
+                                                          </>
+                                                        ) : (
+                                                          <span className="font-medium">{scoreData.score || 0}/{criteria.maxScore}</span>
+                                                        )}
+                                                      </div>
+                                                    </td>
+                                                    <td className="p-4 align-top">
+                                                      {canEditStep() ? (
+                                                        <textarea
+                                                          key={`note-${criteria.id}-${scoreData.note?.slice(0, 20) || ''}`}
+                                                          className="w-full min-h-[60px] p-2 border rounded-md text-sm resize-none"
+                                                          defaultValue={scoreData.note || ''}
+                                                          placeholder="輸入說明..."
+                                                          data-eval-note={criteria.id}
+                                                        />
+                                                      ) : (
+                                                        <span className="text-muted-foreground whitespace-pre-wrap">{scoreData.note || '-'}</span>
+                                                      )}
+                                                    </td>
+                                                  </tr>
+                                                )
+                                              })}
+                                              <tr className="bg-muted/30 font-medium">
+                                                <td className="p-4 text-right">共計</td>
+                                                <td className="p-4 text-center">{totalScore}/{maxTotal}</td>
+                                                <td className="p-4"></td>
+                                              </tr>
+                                            </tbody>
+                                          </table>
+                                        </div>
+                                      )
+                                    })()}
+
+                                    {/* 綜合評估 */}
+                                    {(() => {
+                                      const evalData = parseEvaluationData(step.note)
+                                      return (
+                                        <div className="space-y-3 p-4 border rounded-lg bg-muted/30">
+                                          <div className="font-medium">綜合評估</div>
+                                          {canEditStep() ? (
+                                            <textarea
+                                              key={`conclusion-${evalData?.conclusion?.slice(0, 20) || ''}`}
+                                              className="w-full min-h-[80px] p-2 border rounded-md text-sm resize-none"
+                                              placeholder="輸入綜合評估..."
+                                              defaultValue={evalData?.conclusion || ''}
+                                              data-eval-conclusion="true"
+                                            />
+                                          ) : (
+                                            <div className="text-sm text-muted-foreground">{evalData?.conclusion || '-'}</div>
+                                          )}
+                                        </div>
+                                      )
+                                    })()}
+
+                                    {/* 補助用途與類型 */}
+                                    {(() => {
+                                      const evalData = parseEvaluationData(step.note)
+                                      const savedPurposes = evalData?.purposes || []
+                                      const savedSubsidyType = evalData?.subsidyType || ''
+                                      const currentSubsidyType = evalSubsidyType || savedSubsidyType
+                                      return (
+                                        <>
+                                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                            {/* 補助用途（單選） */}
+                                            <div className="space-y-2">
+                                              <Label>補助用途</Label>
+                                              <div className="flex flex-wrap gap-3">
+                                                {['急難救助', '醫療補助', '教育扶助', '喪葬補助', '生活扶助'].map((purpose) => {
+                                                  const currentPurpose = evalPurpose || (savedPurposes.length > 0 ? savedPurposes[0] : selectedProject?.projectType) || ''
+                                                  const isChecked = currentPurpose === purpose
+                                                  return (
+                                                    <label key={purpose} className="flex items-center gap-2 cursor-pointer">
+                                                      {canEditStep() ? (
+                                                        <div
+                                                          className={`w-4 h-4 rounded-full border-2 cursor-pointer ${isChecked ? 'border-primary bg-primary' : 'border-gray-400 bg-white'}`}
+                                                          onClick={() => setEvalPurpose(purpose)}
+                                                        />
+                                                      ) : (
+                                                        <div className={`w-4 h-4 rounded-full border-2 ${isChecked ? 'border-primary bg-primary' : 'border-gray-400 bg-white'}`} />
+                                                      )}
+                                                      <span className="text-sm">{purpose}</span>
+                                                    </label>
+                                                  )
+                                                })}
+                                              </div>
+                                            </div>
+
+                                            {/* 補助類型 */}
+                                            <div className="space-y-2">
+                                              <Label>補助類型</Label>
+                                              <div className="flex items-center gap-6">
+                                                <label className="flex items-center gap-2 cursor-pointer">
+                                                  {canEditStep() ? (
+                                                    <div
+                                                      className={`w-4 h-4 rounded-full border-2 cursor-pointer ${currentSubsidyType === 'oneTime' ? 'border-primary bg-primary' : 'border-gray-400 bg-white'}`}
+                                                      onClick={() => setEvalSubsidyType('oneTime')}
+                                                    />
+                                                  ) : (
+                                                    <div className={`w-4 h-4 rounded-full border-2 ${savedSubsidyType === 'oneTime' ? 'border-primary bg-primary' : 'border-gray-400 bg-white'}`} />
+                                                  )}
+                                                  <input
+                                                    type="hidden"
+                                                    data-eval-subsidy-type="oneTime"
+                                                    value={currentSubsidyType === 'oneTime' ? 'checked' : ''}
+                                                  />
+                                                  <span className="text-sm">一次性</span>
+                                                </label>
+                                                <label className="flex items-center gap-2 cursor-pointer">
+                                                  {canEditStep() ? (
+                                                    <div
+                                                      className={`w-4 h-4 rounded-full border-2 cursor-pointer ${currentSubsidyType === 'periodic' ? 'border-primary bg-primary' : 'border-gray-400 bg-white'}`}
+                                                      onClick={() => setEvalSubsidyType('periodic')}
+                                                    />
+                                                  ) : (
+                                                    <div className={`w-4 h-4 rounded-full border-2 ${savedSubsidyType === 'periodic' ? 'border-primary bg-primary' : 'border-gray-400 bg-white'}`} />
+                                                  )}
+                                                  <input
+                                                    type="hidden"
+                                                    data-eval-subsidy-type="periodic"
+                                                    value={currentSubsidyType === 'periodic' ? 'checked' : ''}
+                                                  />
+                                                  <span className="text-sm">期間性</span>
+                                                </label>
+                                              </div>
+                                            </div>
+                                          </div>
+
+                                          {/* 一次性：月份和金額 */}
+                                          {currentSubsidyType === 'oneTime' && (
+                                            <div className="space-y-4 p-4 border rounded-lg bg-muted/30">
+                                              <div className="grid grid-cols-2 gap-4">
+                                                <div className="space-y-2">
+                                                  <Label>補助月份</Label>
+                                                  {canEditStep() ? (
+                                                    <Input
+                                                      key={`oneTimeMonth-${evalData?.oneTimeMonth || ''}`}
+                                                      type="month"
+                                                      id={`eval-oneTimeMonth-${step.id}`}
+                                                      defaultValue={evalData?.oneTimeMonth || ''}
+                                                      className="w-full"
+                                                    />
+                                                  ) : (
+                                                    <div className="text-sm font-medium">{evalData?.oneTimeMonth || '-'}</div>
+                                                  )}
+                                                </div>
+                                                <div className="space-y-2">
+                                                  <Label>補助金額</Label>
+                                                  {canEditStep() ? (
+                                                    <div className="flex items-center gap-2">
+                                                      <span className="text-sm text-muted-foreground">新台幣</span>
+                                                      <Input
+                                                        key={`oneTimeAmount-${evalData?.oneTimeAmount || ''}`}
+                                                        type="text"
+                                                        inputMode="numeric"
+                                                        placeholder="金額"
+                                                        id={`eval-oneTimeAmount-${step.id}`}
+                                                        defaultValue={evalData?.oneTimeAmount || ''}
+                                                        className="w-32"
+                                                      />
+                                                      <span className="text-sm text-muted-foreground">元整</span>
+                                                    </div>
+                                                  ) : (
+                                                    <div className="text-sm font-medium">
+                                                      {evalData?.oneTimeAmount ? `新台幣 ${evalData.oneTimeAmount} 元整` : '-'}
+                                                    </div>
+                                                  )}
+                                                </div>
+                                              </div>
+                                            </div>
+                                          )}
+
+                                          {/* 期間性：顯示期間、頻率、每期金額 */}
+                                          {currentSubsidyType === 'periodic' && (
+                                            <div className="space-y-4 p-4 border rounded-lg bg-muted/30">
+                                              {/* 補助期間 */}
+                                              <div className="space-y-2">
+                                                <Label>補助期間</Label>
+                                                {canEditStep() ? (
+                                                  <div className="flex items-center gap-2 flex-wrap">
+                                                    <Input
+                                                      key={`periodStart-${evalData?.periodStart || ''}`}
+                                                      type="date"
+                                                      id={`eval-periodStart-${step.id}`}
+                                                      defaultValue={evalData?.periodStart || ''}
+                                                      className="w-40"
+                                                    />
+                                                    <span className="text-sm text-muted-foreground">至</span>
+                                                    <Input
+                                                      key={`periodEnd-${evalData?.periodEnd || ''}`}
+                                                      type="date"
+                                                      id={`eval-periodEnd-${step.id}`}
+                                                      defaultValue={evalData?.periodEnd || ''}
+                                                      className="w-40"
+                                                    />
+                                                  </div>
+                                                ) : (
+                                                  <div className="text-sm font-medium">
+                                                    {evalData?.periodStart || '-'} 至 {evalData?.periodEnd || '-'}
+                                                  </div>
+                                                )}
+                                              </div>
+
+                                              {/* 補助頻率 */}
+                                              <div className="space-y-2">
+                                                <Label>補助頻率</Label>
+                                                {canEditStep() ? (
+                                                  <div key={`frequency-${evalData?.frequency || ''}-${evalData?.periodicMonths || ''}`} className="flex items-center gap-4 flex-wrap">
+                                                    <label className="flex items-center gap-2 cursor-pointer">
+                                                      <input
+                                                        type="radio"
+                                                        name={`eval-frequency-${step.id}`}
+                                                        id={`eval-frequency-monthly-${step.id}`}
+                                                        defaultChecked={evalData?.frequency === 'monthly' || !evalData?.frequency}
+                                                        className="w-4 h-4 accent-primary"
+                                                      />
+                                                      <span className="text-sm">每月</span>
+                                                    </label>
+                                                    <label className="flex items-center gap-2 cursor-pointer">
+                                                      <input
+                                                        type="radio"
+                                                        name={`eval-frequency-${step.id}`}
+                                                        id={`eval-frequency-periodic-${step.id}`}
+                                                        defaultChecked={evalData?.frequency === 'periodic'}
+                                                        className="w-4 h-4 accent-primary"
+                                                      />
+                                                      <span className="text-sm">每</span>
+                                                      <Input
+                                                        type="text"
+                                                        inputMode="numeric"
+                                                        id={`eval-periodicMonths-${step.id}`}
+                                                        defaultValue={evalData?.periodicMonths || ''}
+                                                        className="w-12 h-8 text-center"
+                                                        placeholder="_"
+                                                      />
+                                                      <span className="text-sm">月為一期</span>
+                                                    </label>
+                                                  </div>
+                                                ) : (
+                                                  <div className="text-sm font-medium">
+                                                    {evalData?.frequency === 'monthly' ? '每月' : `每 ${evalData?.periodicMonths || '-'} 月為一期`}
+                                                  </div>
+                                                )}
+                                              </div>
+
+                                              {/* 每期金額 */}
+                                              <div className="space-y-2">
+                                                <Label>每期金額</Label>
+                                                {canEditStep() ? (
+                                                  <div className="flex items-center gap-2">
+                                                    <span className="text-sm text-muted-foreground">新台幣</span>
+                                                    <Input
+                                                      key={`periodicAmount-${evalData?.periodicAmount || ''}`}
+                                                      type="text"
+                                                      inputMode="numeric"
+                                                      placeholder="金額"
+                                                      id={`eval-periodicAmount-${step.id}`}
+                                                      defaultValue={evalData?.periodicAmount || ''}
+                                                      className="w-32"
+                                                    />
+                                                    <span className="text-sm text-muted-foreground">元整</span>
+                                                  </div>
+                                                ) : (
+                                                  <div className="text-sm font-medium">
+                                                    {evalData?.periodicAmount ? `新台幣 ${evalData.periodicAmount} 元整` : '-'}
+                                                  </div>
+                                                )}
+                                              </div>
+                                            </div>
+                                          )}
+                                        </>
+                                      )
+                                    })()}
+
+                                    {/* 評議委員會日期 - 放在最下方 */}
+                                    <div className="space-y-2 pt-4 border-t">
+                                      <Label>評議委員會日期</Label>
+                                      {canEditStep() ? (
+                                        <Input
+                                          type="date"
+                                          id={`committee-date-inline-${step.id}`}
+                                          defaultValue={(() => {
+                                            // Get the date from next step (評議委員會)
+                                            const nextStep = selectedProject.workflow[originalIndex + 1]
+                                            return nextStep?.subTasks?.[0]?.note || ""
+                                          })()}
+                                          onChange={async (e) => {
+                                            // Update the 評議委員會 step's subTask note with the date
+                                            const nextStepIndex = originalIndex + 1
+                                            if (nextStepIndex < selectedProject.workflow.length) {
+                                              const newWorkflow = [...selectedProject.workflow]
+                                              const nextStep = newWorkflow[nextStepIndex]
+                                              if (nextStep.subTasks && nextStep.subTasks.length > 0) {
+                                                nextStep.subTasks[0].note = e.target.value
+                                                await projectService.updateProject(selectedProject.id, { workflow: newWorkflow })
+                                                const updated = await projectService.getProjectById(selectedProject.id)
+                                                if (updated) setSelectedProject(updated)
+                                              }
+                                            }
+                                          }}
+                                        />
+                                      ) : (
+                                        <div className="text-sm font-medium">
+                                          {(() => {
+                                            const nextStep = selectedProject.workflow[originalIndex + 1]
+                                            return nextStep?.subTasks?.[0]?.note || "-"
+                                          })()}
+                                        </div>
+                                      )}
+                                    </div>
+
+                                    {/* 生成 PDF 按鈕 - 未完成時灰色不可點擊 */}
+                                    <div className="pt-4 border-t">
+                                      <Button
+                                        variant="outline"
+                                        className="w-full"
+                                        disabled={isGeneratingPdf || step.status !== "approved"}
+                                        onClick={async () => {
+                                          if (!selectedProject) return
+
+                                          console.log('[PDF生成] 開始生成 PDF...')
+                                          setIsGeneratingPdf(true)
+                                          try {
+                                            // 從當前評估表收集資料（作為預設值）
+                                            const evalData = parseEvaluationData(step.note)
+                                            console.log('[PDF生成] 資料庫中的評估資料:', evalData)
+                                            const evaluationScores: Record<string, { score: number; note: string }> = {}
+
+                                            // 總是嘗試從 DOM 收集最新值（不管 canEditStep 狀態）
+                                            console.log('[PDF生成] 從 DOM 收集最新值...')
+                                            let hasCollectedFromDOM = false
+                                            EVALUATION_CRITERIA.forEach(criteria => {
+                                              const scoreInput = document.querySelector(`input[data-eval-score="${criteria.id}"]`) as HTMLInputElement
+                                              const noteInput = document.querySelector(`textarea[data-eval-note="${criteria.id}"]`) as HTMLTextAreaElement
+
+                                              if (scoreInput) {
+                                                hasCollectedFromDOM = true
+                                                evaluationScores[criteria.id] = {
+                                                  score: parseInt(scoreInput.value) || 0,
+                                                  note: noteInput?.value || ''
+                                                }
+                                                console.log(`[PDF生成] 從DOM收集: ${criteria.id} = ${scoreInput.value}`)
+                                              } else {
+                                                // DOM 中沒有找到，使用資料庫中的值
+                                                evaluationScores[criteria.id] = evalData?.evaluationScores?.[criteria.id] || { score: 0, note: '' }
+                                                console.log(`[PDF生成] 從資料庫取得: ${criteria.id} = ${evaluationScores[criteria.id].score}`)
+                                              }
+                                            })
+
+                                            console.log('[PDF生成] hasCollectedFromDOM:', hasCollectedFromDOM)
+                                            console.log('[PDF生成] 最終 evaluationScores:', JSON.stringify(evaluationScores, null, 2))
+
+                                            const conclusionInput = document.querySelector(`textarea[data-eval-conclusion="true"]`) as HTMLTextAreaElement
+                                            const conclusion = conclusionInput?.value || evalData?.conclusion || ''
+
+                                            const currentPurposes = evalPurpose ? [evalPurpose] : (evalData?.purposes || [])
+                                            const currentSubsidyType = evalSubsidyType || evalData?.subsidyType || ''
+
+                                            const oneTimeMonth = (document.getElementById(`eval-oneTimeMonth-${step.id}`) as HTMLInputElement)?.value || evalData?.oneTimeMonth || ''
+                                            const oneTimeAmount = (document.getElementById(`eval-oneTimeAmount-${step.id}`) as HTMLInputElement)?.value || evalData?.oneTimeAmount || ''
+                                            const periodStart = (document.getElementById(`eval-periodStart-${step.id}`) as HTMLInputElement)?.value || evalData?.periodStart || ''
+                                            const periodEnd = (document.getElementById(`eval-periodEnd-${step.id}`) as HTMLInputElement)?.value || evalData?.periodEnd || ''
+                                            const isMonthly = (document.getElementById(`eval-frequency-monthly-${step.id}`) as HTMLInputElement)?.checked
+                                            const frequency = isMonthly ? 'monthly' : (evalData?.frequency || 'periodic')
+                                            const periodicMonths = (document.getElementById(`eval-periodicMonths-${step.id}`) as HTMLInputElement)?.value || evalData?.periodicMonths || ''
+                                            const periodicAmount = (document.getElementById(`eval-periodicAmount-${step.id}`) as HTMLInputElement)?.value || evalData?.periodicAmount || ''
+
+                                            const totalScore = Object.values(evaluationScores).reduce((sum, item) => sum + (item?.score || 0), 0)
+
+                                            // 生成 PDF
+                                            const { generateAndUploadEvaluationPdf } = await import('@/services/pdfService')
+                                            const pdfData = await generateAndUploadEvaluationPdf({
+                                              caseNumber: selectedProject.name,
+                                              caseName: selectedProject.name,
+                                              evaluationDate: new Date().toISOString().split('T')[0],
+                                              evaluationScores,
+                                              conclusion,
+                                              purposes: currentPurposes,
+                                              subsidyType: currentSubsidyType as 'oneTime' | 'periodic' | '',
+                                              oneTimeMonth,
+                                              oneTimeAmount,
+                                              periodStart,
+                                              periodEnd,
+                                              frequency,
+                                              periodicMonths,
+                                              periodicAmount,
+                                              totalScore,
+                                            })
+
+                                            console.log('[PDF生成] PDF 已生成:', pdfData.url)
+
+                                            // 檢查評議委員會步驟是否已有 PDF
+                                            const committeeStepIndex = selectedProject.workflow.findIndex(s => s.name.includes("評議委員會"))
+                                            console.log('[PDF生成] 評議委員會步驟索引:', committeeStepIndex)
+                                            if (committeeStepIndex !== -1) {
+                                              const committeeStep = selectedProject.workflow[committeeStepIndex]
+                                              let existingPdf = null
+                                              try {
+                                                if (committeeStep.note) {
+                                                  const noteData = JSON.parse(committeeStep.note)
+                                                  existingPdf = noteData.evaluationPdf
+                                                }
+                                              } catch {}
+                                              console.log('[PDF生成] 現有 PDF:', existingPdf?.url || '無')
+
+                                              if (existingPdf?.url) {
+                                                // 已有 PDF，詢問是否覆蓋
+                                                console.log('[PDF生成] 顯示覆蓋對話框')
+                                                setPdfReplaceDialog({
+                                                  open: true,
+                                                  existingPdf,
+                                                  newPdfData: {
+                                                    id: pdfData.id,
+                                                    url: pdfData.url,
+                                                    fileName: pdfData.fileName,
+                                                    fileSize: pdfData.fileSize,
+                                                    uploadedAt: pdfData.uploadedAt,
+                                                  },
+                                                })
+                                              } else {
+                                                // 沒有現有 PDF，直接上傳
+                                                console.log('[PDF生成] 無現有 PDF，直接儲存')
+                                                const newWorkflow = [...selectedProject.workflow]
+                                                const existingNote = newWorkflow[committeeStepIndex].note ? JSON.parse(newWorkflow[committeeStepIndex].note) : {}
+                                                newWorkflow[committeeStepIndex].note = JSON.stringify({
+                                                  ...existingNote,
+                                                  evaluationPdf: {
+                                                    id: pdfData.id,
+                                                    url: pdfData.url,
+                                                    fileName: pdfData.fileName,
+                                                    fileSize: pdfData.fileSize,
+                                                    uploadedAt: pdfData.uploadedAt,
+                                                  },
+                                                })
+                                                await projectService.updateProject(selectedProject.id, { workflow: newWorkflow })
+                                                const updated = await projectService.getProjectById(selectedProject.id)
+                                                if (updated) setSelectedProject(updated)
+                                                alert('PDF 已生成並上傳到評議委員會')
+                                              }
+                                            }
+                                          } catch (error) {
+                                            console.error('Failed to generate PDF:', error)
+                                            alert('PDF 生成失敗，請稍後再試')
+                                          } finally {
+                                            setIsGeneratingPdf(false)
+                                          }
+                                        }}
+                                      >
+                                        {isGeneratingPdf ? (
+                                          <>
+                                            <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin mr-2" />
+                                            生成中...
+                                          </>
+                                        ) : (
+                                          <>
+                                            <FileText className="h-4 w-4 mr-2" />
+                                            生成評估表 PDF
+                                          </>
+                                        )}
+                                      </Button>
+                                    </div>
+
                                   </div>
                               )}
 
@@ -3365,8 +3837,8 @@ export function PlansPage() {
                                   </div>
                               )}
 
-                              {/* Text Note - Document Style (不顯示評議委員會和結案的JSON資料) */}
-                              {step.note && !step.name.includes("評議委員會") && !step.name.includes("結案") && (
+                              {/* Text Note - Document Style (不顯示評議委員會、結案和評估表的JSON資料) */}
+                              {step.note && !step.name.includes("評議委員會") && !step.name.includes("結案") && !step.name.includes("評估") && (
                                 <div className="bg-muted/30 rounded-lg p-3 text-sm whitespace-pre-wrap">
                                   {step.note}
                                 </div>
@@ -3452,8 +3924,8 @@ export function PlansPage() {
                                 </div>
                               )}
 
-                              {/* Execution submissions for approval steps - horizontal scroll */}
-                              {currentStepExecutions.length > 0 && (
+                              {/* Execution submissions - 已停用，不顯示執行記錄 */}
+                              {false && currentStepExecutions.length > 0 && !step.name.includes("評議委員會") && (
                                 <div className="overflow-x-auto pb-2 -mx-4 px-4" style={{ WebkitOverflowScrolling: 'touch' }}>
                                   <div className="flex gap-4 w-max">
                                   {currentStepExecutions.map((execution) => {
@@ -3743,12 +4215,113 @@ export function PlansPage() {
                                 </div>
                               )}
 
-                              {/* 評議委員會步驟 - 顯示已儲存的資料 */}
+                              {/* 評議委員會步驟 - 顯示已儲存的資料和 PDF */}
                               {step.name.includes("評議委員會") && step.note && step.status === "approved" && (
                                 <div className="space-y-4 border-t pt-3 mt-3">
+                                  {/* PDF 顯示和上傳區域 */}
+                                  <div className="space-y-2">
+                                    <Label>評議委員會文件</Label>
+                                    <div
+                                      className="overflow-x-auto pb-2 -mx-4 px-4 snap-x snap-mandatory md:snap-none"
+                                      style={{ WebkitOverflowScrolling: 'touch' }}
+                                    >
+                                      <div className="flex gap-4 md:gap-4 items-start" style={{ width: 'max-content' }}>
+                                        {/* 顯示評估表自動生成的 PDF */}
+                                        {(() => {
+                                          try {
+                                            const stepNote = step.note ? JSON.parse(step.note) : {}
+                                            if (stepNote.evaluationPdf?.url) {
+                                              return (
+                                                <div className="flex-shrink-0 snap-center w-[90vw] md:w-auto flex flex-col items-center">
+                                                  <PDFPageViewer
+                                                    url={stepNote.evaluationPdf.url}
+                                                    pageHeight="70vh"
+                                                  />
+                                                  <span className="text-xs text-muted-foreground mt-1">評估表 (自動生成)</span>
+                                                </div>
+                                              )
+                                            }
+                                          } catch {}
+                                          return null
+                                        })()}
+                                        {/* 顯示手動上傳的附件 */}
+                                        {step.attachments?.map((attachment) => (
+                                          <div key={attachment.id} className="flex-shrink-0 snap-center w-[90vw] md:w-auto flex flex-col items-center">
+                                            {attachment.mimeType === "application/pdf" ? (
+                                              <PDFPageViewer
+                                                url={attachment.originalUrl}
+                                                pageHeight="70vh"
+                                              />
+                                            ) : (
+                                              <img
+                                                src={attachment.thumbnailUrl || attachment.originalUrl}
+                                                alt=""
+                                                className="h-[70vh] w-auto object-contain rounded"
+                                              />
+                                            )}
+                                          </div>
+                                        ))}
+                                        {/* 編輯模式下顯示上傳區域 */}
+                                        {canEditStep() && (
+                                          <div className="flex-shrink-0 snap-center h-[70vh] w-[90vw] md:w-[180px] flex items-center justify-center">
+                                            <DropZone
+                                              accept="image/*,application/pdf"
+                                              multiple
+                                              className="h-full w-full"
+                                              onFilesSelected={async (files) => {
+                                                const container = projectDetailScrollRef.current; const scrollTop = container?.scrollTop || 0
+                                                const validFiles = files.filter(file => {
+                                                  const validation = validateFile(file, 'receipt')
+                                                  return validation.valid
+                                                })
+                                                if (validFiles.length === 0) return
+                                                try {
+                                                  const results = await imageService.uploadMultiple(validFiles, 'document')
+                                                  const existingAttachments = (step.attachments || []).map(att => ({
+                                                    id: att.id,
+                                                    originalUrl: att.originalUrl,
+                                                    thumbnailUrl: att.thumbnailUrl,
+                                                    fileName: att.fileName,
+                                                    fileSize: att.fileSize,
+                                                    mimeType: att.mimeType,
+                                                    order: att.order,
+                                                  }))
+                                                  const newAttachments = results.map((r, idx) => ({
+                                                    id: r.id,
+                                                    originalUrl: r.originalUrl,
+                                                    thumbnailUrl: r.thumbnailUrl,
+                                                    fileName: r.fileName,
+                                                    fileSize: r.fileSize,
+                                                    mimeType: r.mimeType,
+                                                    order: existingAttachments.length + idx,
+                                                  }))
+                                                  const newWorkflow = [...selectedProject.workflow]
+                                                  newWorkflow[originalIndex].attachments = [...existingAttachments, ...newAttachments]
+                                                  await projectService.updateProject(selectedProject.id, { workflow: newWorkflow })
+                                                  const updated = await projectService.getProjectById(selectedProject.id)
+                                                  if (updated) setSelectedProject(updated)
+                                                  setTimeout(() => { if (projectDetailScrollRef.current) projectDetailScrollRef.current.scrollTop = scrollTop }, 100)
+                                                } catch (error) {
+                                                  console.error('Upload failed:', error)
+                                                }
+                                              }}
+                                            />
+                                          </div>
+                                        )}
+                                      </div>
+                                    </div>
+                                  </div>
                                   {(() => {
                                     try {
                                       const data = JSON.parse(step.note)
+                                      const evalOriginal = data.evalOriginal || {}
+
+                                      // 檢查是否有變更
+                                      const purposesChanged = evalOriginal.purposes?.length > 0 &&
+                                        (evalOriginal.purposes.length !== data.purposes?.length ||
+                                         !evalOriginal.purposes.every((p: string) => data.purposes?.includes(p)))
+                                      const subsidyTypeChanged = evalOriginal.subsidyType && evalOriginal.subsidyType !== data.subsidyType
+
                                       return (
                                         <>
                                           {/* 會議日期 */}
@@ -3763,6 +4336,12 @@ export function PlansPage() {
                                           {data.purposes && data.purposes.length > 0 && (
                                             <div>
                                               <Label className="text-muted-foreground text-xs">補助用途</Label>
+                                              {purposesChanged && (
+                                                <div className="text-sm text-muted-foreground">
+                                                  <span className="line-through">{evalOriginal.purposes.join('、')}</span>
+                                                  <span className="text-xs ml-2">(評估表原設定)</span>
+                                                </div>
+                                              )}
                                               <div className="text-sm font-medium">{data.purposes.join('、')}</div>
                                             </div>
                                           )}
@@ -3771,6 +4350,12 @@ export function PlansPage() {
                                           {data.subsidyType && (
                                             <div>
                                               <Label className="text-muted-foreground text-xs">補助類型</Label>
+                                              {subsidyTypeChanged && (
+                                                <div className="text-sm text-muted-foreground">
+                                                  <span className="line-through">{evalOriginal.subsidyType === 'oneTime' ? '一次性' : '期間性'}</span>
+                                                  <span className="text-xs ml-2">(評估表原設定)</span>
+                                                </div>
+                                              )}
                                               <div className="text-sm font-medium">
                                                 {data.subsidyType === 'oneTime' ? '一次性' : '期間性'}
                                               </div>
@@ -3893,24 +4478,16 @@ export function PlansPage() {
                                     <Label>審核結果</Label>
                                     <div className="flex items-center gap-6">
                                       <label className="flex items-center gap-2 cursor-pointer">
-                                        <input
-                                          type="radio"
-                                          name={`review-${step.id}`}
-                                          value="approved"
-                                          checked={reviewResult[step.id] === 'approved'}
-                                          className="w-4 h-4 accent-primary"
-                                          onChange={() => setReviewResult(prev => ({ ...prev, [step.id]: 'approved' }))}
+                                        <div
+                                          className={`w-4 h-4 rounded-full border-2 cursor-pointer ${reviewResult[step.id] === 'approved' ? 'border-primary bg-primary' : 'border-gray-400 bg-white'}`}
+                                          onClick={() => setReviewResult(prev => ({ ...prev, [step.id]: 'approved' }))}
                                         />
                                         <span className="text-sm">通過</span>
                                       </label>
                                       <label className="flex items-center gap-2 cursor-pointer">
-                                        <input
-                                          type="radio"
-                                          name={`review-${step.id}`}
-                                          value="rejected"
-                                          checked={reviewResult[step.id] === 'rejected'}
-                                          className="w-4 h-4 accent-primary"
-                                          onChange={() => setReviewResult(prev => ({ ...prev, [step.id]: 'rejected' }))}
+                                        <div
+                                          className={`w-4 h-4 rounded-full border-2 cursor-pointer ${reviewResult[step.id] === 'rejected' ? 'border-primary bg-primary' : 'border-gray-400 bg-white'}`}
+                                          onClick={() => setReviewResult(prev => ({ ...prev, [step.id]: 'rejected' }))}
                                         />
                                         <span className="text-sm">不通過</span>
                                       </label>
@@ -4009,32 +4586,50 @@ export function PlansPage() {
                                         <div className="space-y-2">
                                           <Label>評議委員會文件</Label>
                                           <div
-                                            className="overflow-x-auto -mx-4 px-4 snap-x snap-mandatory md:snap-none"
+                                            className="overflow-x-auto pb-2 -mx-4 px-4 snap-x snap-mandatory md:snap-none"
                                             style={{ WebkitOverflowScrolling: 'touch' }}
                                           >
-                                            <div className="flex gap-4 items-start" style={{ width: 'max-content' }}>
+                                            <div className="flex gap-4 md:gap-4 items-start" style={{ width: 'max-content' }}>
+                                              {/* 顯示評估表自動生成的 PDF */}
+                                              {(() => {
+                                                try {
+                                                  const stepNote = step.note ? JSON.parse(step.note) : {}
+                                                  if (stepNote.evaluationPdf?.url) {
+                                                    return (
+                                                      <div className="flex-shrink-0 snap-center w-[90vw] md:w-auto flex flex-col items-center">
+                                                        <PDFPageViewer
+                                                          url={stepNote.evaluationPdf.url}
+                                                          pageHeight="70vh"
+                                                        />
+                                                        <span className="text-xs text-muted-foreground mt-1">評估表 (自動生成)</span>
+                                                      </div>
+                                                    )
+                                                  }
+                                                } catch {}
+                                                return null
+                                              })()}
                                               {committeeAttachments.map((attachment) => (
                                                 <div key={attachment.id} className="flex-shrink-0 snap-center w-[90vw] md:w-auto flex items-center justify-center">
                                                   {attachment.mimeType === "application/pdf" ? (
                                                     <PDFPageViewer
                                                       url={attachment.originalUrl}
-                                                      pageHeight="50vh"
+                                                      pageHeight="70vh"
                                                     />
                                                   ) : (
                                                     <img
                                                       src={attachment.thumbnailUrl || attachment.originalUrl}
                                                       alt={attachment.fileName}
-                                                      className="h-[50vh] w-auto max-w-[90vw] md:max-w-none object-contain rounded"
+                                                      className="h-[70vh] w-auto max-w-[90vw] md:max-w-none object-contain rounded"
                                                     />
                                                   )}
                                                 </div>
                                               ))}
                                               {/* 上傳按鈕 */}
-                                              <div className="flex-shrink-0 snap-center h-[50vh] w-[90vw] md:w-[180px] flex items-center justify-center">
+                                              <div className="flex-shrink-0 snap-center h-[70vh] w-[90vw] md:w-[180px] flex items-center justify-center">
                                                 <DropZone
                                                   accept="image/*,application/pdf"
                                                   multiple
-                                                  className="h-full w-full md:w-[180px]"
+                                                  className="h-full w-full"
                                                   onFilesSelected={async (files) => {
                                                     const container = projectDetailScrollRef.current; const scrollTop = container?.scrollTop || 0
                                                     const validFiles = files.filter(file => {
@@ -4061,171 +4656,201 @@ export function PlansPage() {
                                           </div>
                                         </div>
 
-                                        {/* 補助用途 - 自動帶入個案類型 */}
-                                        <div className="space-y-2">
-                                          <Label>補助用途</Label>
-                                          <div className="flex flex-wrap gap-3">
-                                            {['急難救助', '醫療補助', '教育扶助', '喪葬補助', '生活扶助'].map((purpose) => {
-                                              // 預設勾選個案的補助類型
-                                              const isDefaultChecked = selectedProject?.projectType === purpose
-                                              const isChecked = committeeForm.purposes.length > 0
-                                                ? committeeForm.purposes.includes(purpose)
-                                                : isDefaultChecked
-                                              return (
-                                                <label key={purpose} className="flex items-center gap-2 cursor-pointer">
-                                                  <input
-                                                    type="checkbox"
-                                                    checked={isChecked}
-                                                    onChange={(e) => {
-                                                      if (e.target.checked) {
-                                                        setCommitteeForm(prev => ({ ...prev, purposes: [...prev.purposes, purpose] }))
-                                                      } else {
-                                                        setCommitteeForm(prev => ({ ...prev, purposes: prev.purposes.filter(p => p !== purpose) }))
-                                                      }
-                                                    }}
-                                                    className="w-4 h-4 accent-primary"
-                                                  />
-                                                  <span className="text-sm">{purpose}</span>
-                                                </label>
-                                              )
-                                            })}
-                                          </div>
-                                        </div>
+                                        {/* 補助用途 - 從評估表帶入，可修改 */}
+                                        {(() => {
+                                          // 從評估表取得原始值
+                                          const evalStep = selectedProject?.workflow.find(s => s.name.includes("評估"))
+                                          let evalPurposes: string[] = []
+                                          let evalSubsidyType = ''
+                                          try {
+                                            if (evalStep?.note) {
+                                              const evalData = JSON.parse(evalStep.note)
+                                              evalPurposes = evalData.purposes || []
+                                              evalSubsidyType = evalData.subsidyType || ''
+                                            }
+                                          } catch {}
 
-                                        {/* 補助類型選擇 */}
-                                        <div className="space-y-2">
-                                          <Label>補助類型</Label>
-                                          <div className="flex items-center gap-6">
-                                            <label className="flex items-center gap-2 cursor-pointer">
-                                              <input
-                                                type="radio"
-                                                name={`subsidy-type-${step.id}`}
-                                                checked={committeeForm.subsidyType === 'oneTime'}
-                                                onChange={() => setCommitteeForm(prev => ({ ...prev, subsidyType: 'oneTime' }))}
-                                                className="w-4 h-4 accent-primary"
-                                              />
-                                              <span className="text-sm">一次性</span>
-                                            </label>
-                                            <label className="flex items-center gap-2 cursor-pointer">
-                                              <input
-                                                type="radio"
-                                                name={`subsidy-type-${step.id}`}
-                                                checked={committeeForm.subsidyType === 'periodic'}
-                                                onChange={() => setCommitteeForm(prev => ({ ...prev, subsidyType: 'periodic' }))}
-                                                className="w-4 h-4 accent-primary"
-                                              />
-                                              <span className="text-sm">期間性</span>
-                                            </label>
-                                          </div>
-                                        </div>
+                                          // 當前選擇的用途（優先用表單值，其次用評估表值，最後用個案類型）
+                                          const currentPurposes = committeeForm.purposes.length > 0
+                                            ? committeeForm.purposes
+                                            : evalPurposes.length > 0
+                                              ? evalPurposes
+                                              : selectedProject?.projectType ? [selectedProject.projectType] : []
 
-                                        {/* 一次性：月份和金額 */}
-                                        {committeeForm.subsidyType === 'oneTime' && (
-                                          <div className="space-y-4 p-4 border rounded-lg bg-muted/30">
-                                            <div className="space-y-2">
-                                              <Label>補助月份</Label>
-                                              <Input
-                                                type="month"
-                                                id={`oneTimeMonth-${step.id}`}
-                                                defaultValue={committeeForm.oneTimeMonth}
-                                                className="w-40"
-                                              />
-                                            </div>
-                                            <div className="space-y-2">
-                                              <Label>補助金額</Label>
-                                              <div className="flex items-center gap-2">
-                                                <span className="text-sm text-muted-foreground">新台幣</span>
-                                                <Input
-                                                  type="text"
-                                                  inputMode="numeric"
-                                                  placeholder="金額"
-                                                  id={`oneTimeAmount-${step.id}`}
-                                                  defaultValue={committeeForm.oneTimeAmount}
-                                                  className="w-32"
-                                                />
-                                                <span className="text-sm text-muted-foreground">元整</span>
+                                          // 當前選擇的類型（優先用表單值，其次用評估表值）
+                                          const currentSubsidyType = committeeForm.subsidyType || evalSubsidyType
+
+                                          // 檢查是否有變更
+                                          const purposesChanged = evalPurposes.length > 0 &&
+                                            (evalPurposes.length !== currentPurposes.length ||
+                                             !evalPurposes.every(p => currentPurposes.includes(p)))
+                                          const subsidyTypeChanged = evalSubsidyType && evalSubsidyType !== currentSubsidyType
+
+                                          return (
+                                            <>
+                                              <div className="space-y-2">
+                                                <Label>補助用途</Label>
+                                                {/* 顯示評估表原始值（如有變更則劃線） */}
+                                                {purposesChanged && evalPurposes.length > 0 && (
+                                                  <div className="text-sm text-muted-foreground mb-1">
+                                                    <span className="line-through">{evalPurposes.join('、')}</span>
+                                                    <span className="text-xs ml-2">(評估表原設定)</span>
+                                                  </div>
+                                                )}
+                                                <div className="flex flex-wrap gap-3">
+                                                  {['急難救助', '醫療補助', '教育扶助', '喪葬補助', '生活扶助'].map((purpose) => {
+                                                    const isChecked = currentPurposes.length > 0 ? currentPurposes[0] === purpose : false
+                                                    return (
+                                                      <label key={purpose} className="flex items-center gap-2 cursor-pointer">
+                                                        <div
+                                                          className={`w-4 h-4 rounded-full border-2 cursor-pointer ${isChecked ? 'border-primary bg-primary' : 'border-gray-400 bg-white'}`}
+                                                          onClick={() => setCommitteeForm(prev => ({ ...prev, purposes: [purpose] }))}
+                                                        />
+                                                        <span className="text-sm">{purpose}</span>
+                                                      </label>
+                                                    )
+                                                  })}
+                                                </div>
                                               </div>
-                                            </div>
-                                          </div>
-                                        )}
 
-                                        {/* 期間性：顯示期間、頻率、每期金額 */}
-                                        {committeeForm.subsidyType === 'periodic' && (
-                                          <div className="space-y-4 p-4 border rounded-lg bg-muted/30">
-                                            {/* 補助期間 */}
-                                            <div className="space-y-2">
-                                              <Label>補助期間</Label>
-                                              <div className="flex items-center gap-2 flex-wrap">
-                                                <Input
-                                                  type="date"
-                                                  id={`periodStart-${step.id}`}
-                                                  defaultValue={committeeForm.periodStart}
-                                                  className="w-40"
-                                                />
-                                                <span className="text-sm text-muted-foreground">至</span>
-                                                <Input
-                                                  type="date"
-                                                  id={`periodEnd-${step.id}`}
-                                                  defaultValue={committeeForm.periodEnd}
-                                                  className="w-40"
-                                                />
+                                              {/* 補助類型選擇 */}
+                                              <div className="space-y-2">
+                                                <Label>補助類型</Label>
+                                                {/* 顯示評估表原始值（如有變更則劃線） */}
+                                                {subsidyTypeChanged && evalSubsidyType && (
+                                                  <div className="text-sm text-muted-foreground mb-1">
+                                                    <span className="line-through">{evalSubsidyType === 'oneTime' ? '一次性' : '期間性'}</span>
+                                                    <span className="text-xs ml-2">(評估表原設定)</span>
+                                                  </div>
+                                                )}
+                                                <div className="flex items-center gap-6">
+                                                  <label className="flex items-center gap-2 cursor-pointer">
+                                                    <div
+                                                      className={`w-4 h-4 rounded-full border-2 cursor-pointer ${currentSubsidyType === 'oneTime' ? 'border-primary bg-primary' : 'border-gray-400 bg-white'}`}
+                                                      onClick={() => setCommitteeForm(prev => ({ ...prev, subsidyType: 'oneTime' }))}
+                                                    />
+                                                    <span className="text-sm">一次性</span>
+                                                  </label>
+                                                  <label className="flex items-center gap-2 cursor-pointer">
+                                                    <div
+                                                      className={`w-4 h-4 rounded-full border-2 cursor-pointer ${currentSubsidyType === 'periodic' ? 'border-primary bg-primary' : 'border-gray-400 bg-white'}`}
+                                                      onClick={() => setCommitteeForm(prev => ({ ...prev, subsidyType: 'periodic' }))}
+                                                    />
+                                                    <span className="text-sm">期間性</span>
+                                                  </label>
+                                                </div>
                                               </div>
-                                            </div>
 
-                                            {/* 補助頻率 */}
-                                            <div className="space-y-2">
-                                              <Label>補助頻率</Label>
-                                              <div className="flex items-center gap-4 flex-wrap">
-                                                <label className="flex items-center gap-2 cursor-pointer">
-                                                  <input
-                                                    type="radio"
-                                                    name={`frequency-${step.id}`}
-                                                    id={`frequency-monthly-${step.id}`}
-                                                    defaultChecked={committeeForm.frequency === 'monthly'}
-                                                    className="w-4 h-4 accent-primary"
-                                                  />
-                                                  <span className="text-sm">每月</span>
-                                                </label>
-                                                <label className="flex items-center gap-2 cursor-pointer">
-                                                  <input
-                                                    type="radio"
-                                                    name={`frequency-${step.id}`}
-                                                    id={`frequency-periodic-${step.id}`}
-                                                    defaultChecked={committeeForm.frequency === 'periodic'}
-                                                    className="w-4 h-4 accent-primary"
-                                                  />
-                                                  <span className="text-sm">每</span>
-                                                  <Input
-                                                    type="text"
-                                                    inputMode="numeric"
-                                                    id={`periodicMonths-${step.id}`}
-                                                    defaultValue={committeeForm.periodicMonths}
-                                                    className="w-12 h-8 text-center"
-                                                    placeholder="_"
-                                                  />
-                                                  <span className="text-sm">月為一期</span>
-                                                </label>
-                                              </div>
-                                            </div>
+                                              {/* 一次性：月份和金額 */}
+                                              {currentSubsidyType === 'oneTime' && (
+                                                <div className="space-y-4 p-4 border rounded-lg bg-muted/30">
+                                                  <div className="space-y-2">
+                                                    <Label>補助月份</Label>
+                                                    <Input
+                                                      type="month"
+                                                      id={`oneTimeMonth-${step.id}`}
+                                                      defaultValue={committeeForm.oneTimeMonth}
+                                                      className="w-40"
+                                                    />
+                                                  </div>
+                                                  <div className="space-y-2">
+                                                    <Label>補助金額</Label>
+                                                    <div className="flex items-center gap-2">
+                                                      <span className="text-sm text-muted-foreground">新台幣</span>
+                                                      <Input
+                                                        type="text"
+                                                        inputMode="numeric"
+                                                        placeholder="金額"
+                                                        id={`oneTimeAmount-${step.id}`}
+                                                        defaultValue={committeeForm.oneTimeAmount}
+                                                        className="w-32"
+                                                      />
+                                                      <span className="text-sm text-muted-foreground">元整</span>
+                                                    </div>
+                                                  </div>
+                                                </div>
+                                              )}
 
-                                            {/* 每期金額 */}
-                                            <div className="space-y-2">
-                                              <Label>每期金額</Label>
-                                              <div className="flex items-center gap-2">
-                                                <span className="text-sm text-muted-foreground">新台幣</span>
-                                                <Input
-                                                  type="text"
-                                                  inputMode="numeric"
-                                                  placeholder="金額"
-                                                  id={`periodicAmount-${step.id}`}
-                                                  defaultValue={committeeForm.periodicAmount}
-                                                  className="w-32"
-                                                />
-                                                <span className="text-sm text-muted-foreground">元整</span>
-                                              </div>
-                                            </div>
-                                          </div>
-                                        )}
+                                              {/* 期間性：顯示期間、頻率、每期金額 */}
+                                              {currentSubsidyType === 'periodic' && (
+                                                <div className="space-y-4 p-4 border rounded-lg bg-muted/30">
+                                                  {/* 補助期間 */}
+                                                  <div className="space-y-2">
+                                                    <Label>補助期間</Label>
+                                                    <div className="flex items-center gap-2 flex-wrap">
+                                                      <Input
+                                                        type="date"
+                                                        id={`periodStart-${step.id}`}
+                                                        defaultValue={committeeForm.periodStart}
+                                                        className="w-40"
+                                                      />
+                                                      <span className="text-sm text-muted-foreground">至</span>
+                                                      <Input
+                                                        type="date"
+                                                        id={`periodEnd-${step.id}`}
+                                                        defaultValue={committeeForm.periodEnd}
+                                                        className="w-40"
+                                                      />
+                                                    </div>
+                                                  </div>
+
+                                                  {/* 補助頻率 */}
+                                                  <div className="space-y-2">
+                                                    <Label>補助頻率</Label>
+                                                    <div className="flex items-center gap-4 flex-wrap">
+                                                      <label className="flex items-center gap-2 cursor-pointer">
+                                                        <input
+                                                          type="radio"
+                                                          name={`frequency-${step.id}`}
+                                                          id={`frequency-monthly-${step.id}`}
+                                                          defaultChecked={committeeForm.frequency === 'monthly'}
+                                                          className="w-4 h-4 accent-primary"
+                                                        />
+                                                        <span className="text-sm">每月</span>
+                                                      </label>
+                                                      <label className="flex items-center gap-2 cursor-pointer">
+                                                        <input
+                                                          type="radio"
+                                                          name={`frequency-${step.id}`}
+                                                          id={`frequency-periodic-${step.id}`}
+                                                          defaultChecked={committeeForm.frequency === 'periodic'}
+                                                          className="w-4 h-4 accent-primary"
+                                                        />
+                                                        <span className="text-sm">每</span>
+                                                        <Input
+                                                          type="text"
+                                                          inputMode="numeric"
+                                                          id={`periodicMonths-${step.id}`}
+                                                          defaultValue={committeeForm.periodicMonths}
+                                                          className="w-12 h-8 text-center"
+                                                          placeholder="_"
+                                                        />
+                                                        <span className="text-sm">月為一期</span>
+                                                      </label>
+                                                    </div>
+                                                  </div>
+
+                                                  {/* 每期金額 */}
+                                                  <div className="space-y-2">
+                                                    <Label>每期金額</Label>
+                                                    <div className="flex items-center gap-2">
+                                                      <span className="text-sm text-muted-foreground">新台幣</span>
+                                                      <Input
+                                                        type="text"
+                                                        inputMode="numeric"
+                                                        placeholder="金額"
+                                                        id={`periodicAmount-${step.id}`}
+                                                        defaultValue={committeeForm.periodicAmount}
+                                                        className="w-32"
+                                                      />
+                                                      <span className="text-sm text-muted-foreground">元整</span>
+                                                    </div>
+                                                  </div>
+                                                </div>
+                                              )}
+                                            </>
+                                          )
+                                        })()}
                                       </>
                                     ) : step.name.includes("結案") ? (
                                       /* 結案與追蹤步驟的表單 - 只有一次性需要顯示 */
@@ -4434,41 +5059,127 @@ export function PlansPage() {
                                             setIsProcessing(true)
                                             try {
                                               if (step.name.includes("評估")) {
-                                            // 評估表：直接送出，收集預期金額
+                                            // 評估表：收集評估分數、說明和補助資料
                                             const newWorkflow = [...selectedProject.workflow]
-                                            const evalStep = newWorkflow[selectedProject.currentStep]
+                                            const evalStep = newWorkflow[originalIndex]
 
-                                            // 收集預期金額
-                                            const budgetInput = document.querySelector(`input[data-budget-input="${step.id}"]`) as HTMLInputElement
-                                            if (budgetInput && budgetInput.value) {
-                                              evalStep.note = budgetInput.value
-                                            }
-
-                                            evalStep.status = "approved"
-                                            evalStep.approvedAt = new Date().toISOString()
-
-                                            // 啟動下一步
-                                            const nextStepIndex = selectedProject.currentStep + 1
-                                            if (nextStepIndex < newWorkflow.length) {
-                                              newWorkflow[nextStepIndex].status = "in_progress"
-                                            }
-
-                                            await projectService.updateProject(selectedProject.id, {
-                                              workflow: newWorkflow,
-                                              currentStep: nextStepIndex,
+                                            // 收集評估分數和說明
+                                            const evaluationScores: Record<string, { score: number; note: string }> = {}
+                                            EVALUATION_CRITERIA.forEach(criteria => {
+                                              const scoreInput = document.querySelector(`input[data-eval-score="${criteria.id}"]`) as HTMLInputElement
+                                              const noteInput = document.querySelector(`textarea[data-eval-note="${criteria.id}"]`) as HTMLTextAreaElement
+                                              evaluationScores[criteria.id] = {
+                                                score: scoreInput ? parseInt(scoreInput.value) || 0 : 0,
+                                                note: noteInput?.value || ''
+                                              }
                                             })
+
+                                            // 收集綜合評估
+                                            const conclusionInput = document.querySelector(`textarea[data-eval-conclusion="true"]`) as HTMLTextAreaElement
+                                            const conclusion = conclusionInput?.value || ''
+
+                                            // 收集補助用途（單選，使用 evalPurpose 狀態）
+                                            const purposes: string[] = evalPurpose ? [evalPurpose] : []
+
+                                            // 收集補助類型（使用 evalSubsidyType 狀態）
+                                            const subsidyType = evalSubsidyType
+
+                                            // 收集補助詳細資料
+                                            const oneTimeMonth = (document.getElementById(`eval-oneTimeMonth-${step.id}`) as HTMLInputElement)?.value || ''
+                                            const oneTimeAmount = (document.getElementById(`eval-oneTimeAmount-${step.id}`) as HTMLInputElement)?.value || ''
+                                            const periodStart = (document.getElementById(`eval-periodStart-${step.id}`) as HTMLInputElement)?.value || ''
+                                            const periodEnd = (document.getElementById(`eval-periodEnd-${step.id}`) as HTMLInputElement)?.value || ''
+                                            const isMonthly = (document.getElementById(`eval-frequency-monthly-${step.id}`) as HTMLInputElement)?.checked
+                                            const frequency = isMonthly ? 'monthly' : 'periodic'
+                                            const periodicMonths = (document.getElementById(`eval-periodicMonths-${step.id}`) as HTMLInputElement)?.value || ''
+                                            const periodicAmount = (document.getElementById(`eval-periodicAmount-${step.id}`) as HTMLInputElement)?.value || ''
+
+                                            // 儲存所有資料到 step.note
+                                            evalStep.note = JSON.stringify({
+                                              evaluationScores,
+                                              conclusion,
+                                              purposes,
+                                              subsidyType,
+                                              oneTimeMonth,
+                                              oneTimeAmount,
+                                              periodStart,
+                                              periodEnd,
+                                              frequency: subsidyType === 'periodic' ? frequency : '',
+                                              periodicMonths,
+                                              periodicAmount,
+                                              totalScore: Object.values(evaluationScores).reduce((sum, item) => sum + item.score, 0)
+                                            })
+
+                                            // 檢查是否為編輯已完成的步驟
+                                            const isEditingCompletedStep = originalIndex < selectedProject.currentStep
+
+                                            if (isEditingCompletedStep) {
+                                              // 編輯已完成的步驟：只儲存資料，不改變狀態
+                                              await projectService.updateProject(selectedProject.id, {
+                                                workflow: newWorkflow,
+                                              })
+                                            } else {
+                                              // 首次提交：改變狀態並推進到下一步
+                                              evalStep.status = "approved"
+                                              evalStep.approvedAt = new Date().toISOString()
+
+                                              // 啟動下一步
+                                              const nextStepIndex = selectedProject.currentStep + 1
+                                              if (nextStepIndex < newWorkflow.length) {
+                                                newWorkflow[nextStepIndex].status = "in_progress"
+
+                                                // 將評估表的補助資料自動帶入評議委員會步驟
+                                                const committeeStep = newWorkflow[nextStepIndex]
+                                                const existingNote = committeeStep.note ? JSON.parse(committeeStep.note) : {}
+                                                committeeStep.note = JSON.stringify({
+                                                  ...existingNote,
+                                                  // 帶入評估表的補助資料作為預設值
+                                                  purposes,
+                                                  subsidyType,
+                                                  oneTimeMonth,
+                                                  oneTimeAmount,
+                                                  periodStart,
+                                                  periodEnd,
+                                                  frequency: subsidyType === 'periodic' ? frequency : '',
+                                                  periodicMonths,
+                                                  periodicAmount,
+                                                })
+                                              }
+
+                                              await projectService.updateProject(selectedProject.id, {
+                                                workflow: newWorkflow,
+                                                currentStep: nextStepIndex,
+                                              })
+                                            }
                                           } else if (step.name.includes("評議委員會")) {
                                             // 評議委員會：儲存會議結果
                                             const newWorkflow = [...selectedProject.workflow]
                                             const committeeStep = newWorkflow[selectedProject.currentStep]
 
+                                            // 取得評估表的原始資料
+                                            const evalStep = newWorkflow.find(s => s.name.includes("評估"))
+                                            let evalPurposes: string[] = []
+                                            let evalSubsidyType = ''
+                                            try {
+                                              if (evalStep?.note) {
+                                                const evalData = JSON.parse(evalStep.note)
+                                                evalPurposes = evalData.purposes || []
+                                                evalSubsidyType = evalData.subsidyType || ''
+                                              }
+                                            } catch {}
+
                                             // 取得會議日期（從 subTask[0].note，由評估表設定）
                                             const meetingDate = committeeStep.subTasks?.[0]?.note || ''
 
-                                            // 取得補助用途（優先用表單值，否則用個案類型）
+                                            // 取得補助用途（優先用表單值，其次用評估表值，最後用個案類型）
                                             const purposes = committeeForm.purposes.length > 0
                                               ? committeeForm.purposes
-                                              : selectedProject.projectType ? [selectedProject.projectType] : []
+                                              : evalPurposes.length > 0
+                                                ? evalPurposes
+                                                : selectedProject.projectType ? [selectedProject.projectType] : []
+
+                                            // 取得補助類型（優先用表單值，其次用評估表值）
+                                            const subsidyType = committeeForm.subsidyType || evalSubsidyType
 
                                             // 從 DOM 收集表單資料
                                             const oneTimeMonth = (document.getElementById(`oneTimeMonth-${step.id}`) as HTMLInputElement)?.value || ''
@@ -4480,18 +5191,23 @@ export function PlansPage() {
                                             const periodicMonths = (document.getElementById(`periodicMonths-${step.id}`) as HTMLInputElement)?.value || ''
                                             const periodicAmount = (document.getElementById(`periodicAmount-${step.id}`) as HTMLInputElement)?.value || ''
 
-                                            // 儲存表單資料到 step.note
+                                            // 儲存表單資料到 step.note（包含原始評估表值以便對比）
                                             committeeStep.note = JSON.stringify({
                                               meetingDate,
                                               purposes,
-                                              subsidyType: committeeForm.subsidyType,
+                                              subsidyType,
                                               oneTimeMonth,
                                               oneTimeAmount,
                                               periodStart,
                                               periodEnd,
-                                              frequency: committeeForm.subsidyType === 'periodic' ? frequency : '',
+                                              frequency: subsidyType === 'periodic' ? frequency : '',
                                               periodicMonths,
                                               periodicAmount,
+                                              // 保存評估表原始值以便對比
+                                              evalOriginal: {
+                                                purposes: evalPurposes,
+                                                subsidyType: evalSubsidyType,
+                                              },
                                             })
 
                                             // 儲存附件
@@ -4740,7 +5456,7 @@ export function PlansPage() {
                 variant="ghost"
                 onClick={() => {
                   setSelectedPlan(null)
-                  setSelectedProject(null)
+                  handleClearSelectedProject()
                   setMobileView("plans")
                 }}
                 className="shrink-0"
@@ -5314,7 +6030,8 @@ export function PlansPage() {
                   }
                   placeholder={(() => {
                     const plan = selectedPlan || plans.find(p => p.id === projectFormData.planId)
-                    return plan?.code ? `例如：${plan.code}11509001` : "例如：JL11509001"
+                    const code = plan?.code || "XX"
+                    return `例如：${code}11509001`
                   })()}
                 />
               </div>
@@ -5866,6 +6583,125 @@ export function PlansPage() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* PDF 覆蓋確認對話框 */}
+      <Dialog open={pdfReplaceDialog.open} onOpenChange={(open) => !open && setPdfReplaceDialog({ open: false })}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>已有評估表 PDF</DialogTitle>
+            <DialogDescription>
+              評議委員會步驟已有一份評估表 PDF，請選擇要如何處理：
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4">
+            <p className="text-sm text-muted-foreground">
+              現有檔案：{pdfReplaceDialog.existingPdf?.fileName || '評估表.pdf'}
+            </p>
+          </div>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setPdfReplaceDialog({ open: false })
+                alert('已保留原有 PDF')
+              }}
+            >
+              保留原本
+            </Button>
+            <Button
+              onClick={async () => {
+                // 覆蓋：使用新的 PDF 資料，並刪除舊的
+                console.log('[PDF覆蓋] 點擊覆蓋按鈕')
+                console.log('[PDF覆蓋] 新 PDF 資料:', pdfReplaceDialog.newPdfData)
+                console.log('[PDF覆蓋] 舊 PDF 資料:', pdfReplaceDialog.existingPdf)
+                try {
+                  if (selectedProject && pdfReplaceDialog.newPdfData) {
+                    const committeeStepIndex = selectedProject.workflow.findIndex(s => s.name.includes("評議委員會"))
+                    console.log('[PDF覆蓋] 評議委員會步驟索引:', committeeStepIndex)
+                    if (committeeStepIndex !== -1) {
+                      // 刪除舊的 PDF
+                      if (pdfReplaceDialog.existingPdf?.id) {
+                        try {
+                          const { pdfService } = await import('@/services/pdfService')
+                          console.log('[PDF覆蓋] 刪除舊 PDF:', pdfReplaceDialog.existingPdf.id)
+                          await pdfService.delete(pdfReplaceDialog.existingPdf)
+                          console.log('[PDF覆蓋] 舊 PDF 已刪除')
+                        } catch (deleteError) {
+                          console.warn('[PDF覆蓋] 刪除舊 PDF 失敗（繼續儲存新的）:', deleteError)
+                        }
+                      }
+
+                      const newWorkflow = [...selectedProject.workflow]
+                      let existingNote: Record<string, unknown> = {}
+                      try {
+                        if (newWorkflow[committeeStepIndex].note) {
+                          existingNote = JSON.parse(newWorkflow[committeeStepIndex].note)
+                        }
+                      } catch {}
+                      existingNote.evaluationPdf = pdfReplaceDialog.newPdfData
+                      newWorkflow[committeeStepIndex].note = JSON.stringify(existingNote)
+                      console.log('[PDF覆蓋] 儲存中...')
+                      await projectService.updateProject(selectedProject.id, { workflow: newWorkflow })
+                      console.log('[PDF覆蓋] 儲存成功，重新載入專案...')
+                      const updated = await projectService.getProjectById(selectedProject.id)
+                      if (updated) {
+                        console.log('[PDF覆蓋] 專案已更新')
+                        setSelectedProject(updated)
+                      }
+                    }
+                  }
+                  setPdfReplaceDialog({ open: false })
+                  alert('PDF 已覆蓋（舊檔案已刪除）')
+                } catch (error) {
+                  console.error('[PDF覆蓋] 儲存失敗:', error)
+                  alert('儲存失敗，請稍後再試')
+                  setPdfReplaceDialog({ open: false })
+                }
+              }}
+            >
+              覆蓋
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* 衝突解決對話框 */}
+      <Dialog open={!!evalConflict} onOpenChange={(open) => !open && resolveEvalConflict(false)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>資料衝突</DialogTitle>
+            <DialogDescription>
+              其他使用者修改了「{evalConflict?.fieldLabel}」欄位，請選擇要保留哪個值：
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="p-3 border rounded-lg bg-blue-50">
+              <div className="text-sm font-medium text-blue-700 mb-1">您的修改</div>
+              <div className="text-sm">{String(evalConflict?.localValue || '-')}</div>
+            </div>
+            <div className="p-3 border rounded-lg bg-green-50">
+              <div className="text-sm font-medium text-green-700 mb-1">其他人的修改</div>
+              <div className="text-sm">{String(evalConflict?.remoteValue || '-')}</div>
+            </div>
+          </div>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => resolveEvalConflict(false)}>
+              使用其他人的
+            </Button>
+            <Button onClick={() => resolveEvalConflict(true)}>
+              保留我的
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* 自動儲存指示器 */}
+      {isEvalSaving && (
+        <div className="fixed bottom-4 right-4 bg-primary text-primary-foreground px-3 py-2 rounded-lg shadow-lg text-sm flex items-center gap-2 z-50">
+          <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
+          儲存中...
+        </div>
+      )}
     </div>
   )
 }
