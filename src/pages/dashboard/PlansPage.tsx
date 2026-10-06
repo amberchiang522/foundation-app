@@ -81,7 +81,7 @@ export function PlansPage() {
   const [adminTags, setAdminTags] = useState<AdminTag[]>([])
   const [_projectTypes, setProjectTypes] = useState<ProjectType[]>([])
   const [organizations, setOrganizations] = useState<OrganizationWithDetails[]>([])
-  const [staffMembers, setStaffMembers] = useState<User[]>([])
+  const [, setStaffMembers] = useState<User[]>([])
   const [isLoading, setIsLoading] = useState(true)
 
   // Navigation state
@@ -268,8 +268,8 @@ export function PlansPage() {
   // 自動儲存功能已停用（造成無限循環問題）
   // const evalStepIndex = selectedProject?.workflow.findIndex(s => s.name.includes("評估")) ?? -1
   const isEvalSaving = false
-  const evalConflict = null
-  const resolveEvalConflict = (_useLocal: boolean) => {}
+  const [evalConflict, _setEvalConflict] = useState<{ fieldLabel: string; localValue: unknown; remoteValue: unknown } | null>(null)
+  const resolveEvalConflict = (_useLocal: boolean) => { _setEvalConflict(null) }
 
   // Inline execution form content (using ref to avoid re-render/focus issues)
   const inlineExecContentRef = useRef<HTMLTextAreaElement>(null)
@@ -1173,38 +1173,7 @@ export function PlansPage() {
     if (updated) setSelectedProject(updated)
   }
 
-  // Update step assignees (for super admin to assign specific people)
-  const updateStepAssignees = async (
-    project: Project,
-    stepIndex: number,
-    assigneeType: "assignee" | "verifier" | "approver",
-    userIds: string[]
-  ) => {
-    const newWorkflow = [...project.workflow]
-    const step = newWorkflow[stepIndex]
-
-    if (assigneeType === "assignee") {
-      step.assigneeUserIds = userIds.length > 0 ? userIds : undefined
-      step.assigneeType = userIds.length > 0 ? "person" : undefined
-    } else if (assigneeType === "verifier") {
-      step.verifierUserIds = userIds.length > 0 ? userIds : undefined
-      step.verifierType = userIds.length > 0 ? "person" : undefined
-    } else if (assigneeType === "approver") {
-      step.approverUserIds = userIds.length > 0 ? userIds : undefined
-      step.approverType = userIds.length > 0 ? "person" : undefined
-    }
-
-    await projectService.updateProject(project.id, { workflow: newWorkflow })
-    await loadData()
-
-    const updated = await projectService.getProjectById(project.id)
-    if (updated) setSelectedProject(updated)
-  }
-
-  // Helper to get user name by ID
-  const getUserName = (userId: string) => {
-    return staffMembers.find((s) => s.id === userId)?.name || userId
-  }
+  // Note: updateStepAssignees and getUserName removed as unused
 
   const advanceStatus = async (project: Project) => {
     if (!user) return
@@ -4083,7 +4052,7 @@ export function PlansPage() {
                                                       editExecAttachments as ImageData[]
                                                     )
                                                     console.log("Update result:", result)
-                                                    await loadProjectExecutions(selectedProject.id)
+                                                    if (selectedProject) await loadProjectExecutions(selectedProject.id)
                                                     setEditingExecutionId(null)
                                                     setTimeout(() => { if (projectDetailScrollRef.current) projectDetailScrollRef.current.scrollTop = scrollTop }, 100)
                                                   } catch (error) {
@@ -6624,7 +6593,11 @@ export function PlansPage() {
                         try {
                           const { pdfService } = await import('@/services/pdfService')
                           console.log('[PDF覆蓋] 刪除舊 PDF:', pdfReplaceDialog.existingPdf.id)
-                          await pdfService.delete(pdfReplaceDialog.existingPdf)
+                          await pdfService.delete({
+                            ...pdfReplaceDialog.existingPdf,
+                            fileSize: pdfReplaceDialog.existingPdf.fileSize ?? 0,
+                            uploadedAt: pdfReplaceDialog.existingPdf.uploadedAt ?? new Date().toISOString()
+                          })
                           console.log('[PDF覆蓋] 舊 PDF 已刪除')
                         } catch (deleteError) {
                           console.warn('[PDF覆蓋] 刪除舊 PDF 失敗（繼續儲存新的）:', deleteError)
