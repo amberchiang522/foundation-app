@@ -1464,7 +1464,12 @@ export function PlansPage() {
                               setSelectedProject(project)
                             }}
                           >
-                            <div className="font-medium text-xs md:text-sm line-clamp-1">{project.name}</div>
+                            <div className="flex items-center gap-1">
+                              <span className="font-medium text-xs md:text-sm line-clamp-1">{project.name}</span>
+                              {project.projectNumber && (
+                                <span className="text-[10px] text-muted-foreground shrink-0">{project.projectNumber}</span>
+                              )}
+                            </div>
                             {org && (
                               <div className="text-[10px] md:text-xs text-muted-foreground mt-0.5 md:mt-1 flex items-center gap-1 line-clamp-1">
                                 <Building2 className="h-2.5 w-2.5 md:h-3 md:w-3 flex-shrink-0" />
@@ -1517,7 +1522,12 @@ export function PlansPage() {
                           setSelectedProject(project)
                         }}
                       >
-                        <div className="font-medium text-xs md:text-sm line-clamp-1">{project.name}</div>
+                        <div className="flex items-center gap-1">
+                          <span className="font-medium text-xs md:text-sm line-clamp-1">{project.name}</span>
+                          {project.projectNumber && (
+                            <span className="text-[10px] text-muted-foreground shrink-0">{project.projectNumber}</span>
+                          )}
+                        </div>
                         {org && (
                           <div className="text-[10px] md:text-xs text-muted-foreground mt-0.5 md:mt-1 flex items-center gap-1 line-clamp-1">
                             <Building2 className="h-2.5 w-2.5 md:h-3 md:w-3 flex-shrink-0" />
@@ -2304,6 +2314,9 @@ export function PlansPage() {
                       {/* Mobile: name only (no badge) */}
                       <div className="flex items-center gap-2">
                         <span className="font-medium truncate">{project.name}</span>
+                        {project.projectNumber && (
+                          <span className="text-xs text-muted-foreground shrink-0">{project.projectNumber}</span>
+                        )}
                         {project.status === "not_established" && (
                           <Badge variant="destructive" className="text-xs shrink-0">
                             不成立
@@ -2508,7 +2521,12 @@ export function PlansPage() {
           </div>
           <div className="flex items-start justify-between">
             <div className="flex-1">
-              <h2 className="text-xl font-semibold">{selectedProject.name}</h2>
+              <div className="flex items-center gap-2">
+                <h2 className="text-xl font-semibold">{selectedProject.name}</h2>
+                {selectedProject.projectNumber && (
+                  <span className="text-sm text-muted-foreground">{selectedProject.projectNumber}</span>
+                )}
+              </div>
               <div className="flex flex-wrap items-center gap-2 mt-1">
                 <Badge
                   variant={
