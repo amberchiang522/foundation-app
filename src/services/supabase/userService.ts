@@ -165,18 +165,35 @@ export const supabaseUserService = {
   },
 
   async getApplicationByToken(token: string): Promise<VolunteerApplication | null> {
+    // Use RPC function for secure token-based access (works for anon users)
     const { data, error } = await supabase
-      .from('volunteer_applications')
-      .select('*')
-      .eq('token', token)
-      .single()
+      .rpc('get_application_by_token', { p_token: token })
 
     if (error) {
-      if (error.code === 'PGRST116') return null
       console.error('Error fetching application by token:', error)
       return null
     }
-    return transformApplication(data as Record<string, unknown>)
+
+    // RPC returns array, get first result
+    const result = Array.isArray(data) ? data[0] : data
+    if (!result) return null
+
+    // Transform the limited fields returned by RPC
+    return {
+      id: result.id,
+      token: token, // We know the token since we queried with it
+      name: result.name,
+      email: '', // Not returned by RPC for privacy
+      phone: '',
+      birthday: '',
+      occupation: '',
+      experience: '',
+      lineId: '',
+      status: result.status as VolunteerApplication['status'],
+      reviewNote: result.review_note || undefined,
+      createdAt: result.created_at,
+      updatedAt: result.updated_at,
+    }
   },
 
   async getApplicationByEmail(email: string): Promise<VolunteerApplication | null> {
@@ -197,26 +214,38 @@ export const supabaseUserService = {
   },
 
   async createApplication(appData: Omit<VolunteerApplication, 'id' | 'token' | 'status' | 'createdAt' | 'updatedAt'>): Promise<VolunteerApplication> {
-    const { data: newApp, error } = await supabase
-      .from('volunteer_applications')
-      .insert({
-        name: appData.name,
-        email: appData.email,
-        phone: appData.phone,
-        birthday: appData.birthday,
-        occupation: appData.occupation,
-        experience: appData.experience,
-        line_id: appData.lineId,
-        status: 'pending',
-      })
-      .select()
-      .single()
+    // 使用 RPC 建立申請（支援匿名使用者）
+    const { data, error } = await supabase.rpc('create_application', {
+      p_name: appData.name,
+      p_email: appData.email,
+      p_phone: appData.phone,
+      p_birthday: appData.birthday,
+      p_occupation: appData.occupation || null,
+      p_experience: appData.experience || null,
+      p_line_id: appData.lineId || null,
+    })
 
     if (error) {
       console.error('Error creating application:', error)
       throw error
     }
-    return transformApplication(newApp as Record<string, unknown>)
+
+    // RPC 回傳 [{id, token, status}]
+    const result = Array.isArray(data) ? data[0] : data
+    return {
+      id: result.id,
+      token: result.token,
+      name: appData.name,
+      email: appData.email,
+      phone: appData.phone,
+      birthday: appData.birthday,
+      occupation: appData.occupation || '',
+      experience: appData.experience || '',
+      lineId: appData.lineId || '',
+      status: result.status as VolunteerApplication['status'],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    }
   },
 
   async updateApplication(id: string, appData: Partial<VolunteerApplication>): Promise<VolunteerApplication | null> {

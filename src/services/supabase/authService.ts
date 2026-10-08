@@ -34,16 +34,7 @@ export const supabaseAuthService = {
         password: credentials.password,
       })
 
-      console.log('Supabase response - data:', data)
-      console.log('Supabase response - error:', error)
-
       if (error) {
-        console.error('Supabase auth error details:', {
-          message: error.message,
-          status: error.status,
-          code: error.code,
-          name: error.name,
-        })
         // Translate common errors to Chinese
         if (error.message?.includes('Invalid login credentials')) {
           return { success: false, error: '帳號或密碼錯誤' }
