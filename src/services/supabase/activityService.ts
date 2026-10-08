@@ -225,60 +225,31 @@ export const supabaseActivityService = {
   },
 
   async registerForActivity(activityId: string, userId: string): Promise<ActivityRegistration | null> {
-    const activity = await this.getActivityById(activityId)
-    if (!activity) return null
-
-    // Check if already registered
-    const existing = await this.getRegistration(activityId, userId)
-    if (existing) return existing
-
-    // Count confirmed registrations
-    const { count } = await supabase
-      .from('activity_registrations')
-      .select('*', { count: 'exact', head: true })
-      .eq('activity_id', activityId)
-      .eq('status', 'confirmed')
-
-    // Determine status
-    let status: ActivityRegistration['status'] = 'confirmed'
-    let waitlistPosition: number | undefined
-
-    if ((count || 0) >= activity.capacity) {
-      status = 'waitlist'
-      const { count: waitlistCount } = await supabase
-        .from('activity_registrations')
-        .select('*', { count: 'exact', head: true })
-        .eq('activity_id', activityId)
-        .eq('status', 'waitlist')
-      waitlistPosition = (waitlistCount || 0) + 1
-    } else if (activity.registrationMode === 'approval') {
-      status = 'pending'
-    }
-
-    const { data: newReg, error } = await supabase
-      .from('activity_registrations')
-      .insert({
-        activity_id: activityId,
-        user_id: userId,
-        status,
-        waitlist_position: waitlistPosition,
-      })
-      .select()
-      .single()
+    // 使用 RPC 進行報名（避免直接寫入表）
+    const { data, error } = await supabase.rpc('register_for_activity', {
+      p_activity_id: activityId,
+      p_user_id: userId,
+    })
 
     if (error) {
       console.error('Error creating registration:', error)
       return null
     }
-    return transformRegistration(newReg as Record<string, unknown>)
+
+    // RPC 回傳 activity_registrations record
+    return transformRegistration(data as Record<string, unknown>)
   },
 
   async cancelRegistration(activityId: string, userId: string): Promise<boolean> {
-    const { error } = await supabase
-      .from('activity_registrations')
-      .update({ status: 'cancelled' })
-      .eq('activity_id', activityId)
-      .eq('user_id', userId)
+    // 先取得 registration ID
+    const registration = await this.getRegistration(activityId, userId)
+    if (!registration) return false
+
+    // 使用 RPC 取消報名
+    const { error } = await supabase.rpc('cancel_registration', {
+      p_registration_id: registration.id,
+      p_user_id: userId,
+    })
 
     if (error) {
       console.error('Error cancelling registration:', error)
@@ -287,17 +258,11 @@ export const supabaseActivityService = {
     return true
   },
 
-  async approveRegistration(registrationId: string, reviewerId: string): Promise<ActivityRegistration | null> {
-    const { data, error } = await supabase
-      .from('activity_registrations')
-      .update({
-        status: 'confirmed',
-        reviewed_by: reviewerId,
-        reviewed_at: new Date().toISOString(),
-      })
-      .eq('id', registrationId)
-      .select()
-      .single()
+  async approveRegistration(registrationId: string, _reviewerId: string): Promise<ActivityRegistration | null> {
+    // 使用管理員 RPC 確認報名
+    const { data, error } = await supabase.rpc('admin_confirm_registration', {
+      p_registration_id: registrationId,
+    })
 
     if (error) {
       console.error('Error approving registration:', error)
@@ -307,15 +272,12 @@ export const supabaseActivityService = {
   },
 
   async recordAttendance(registrationId: string, attended: boolean, serviceHours?: number): Promise<ActivityRegistration | null> {
-    const { data, error } = await supabase
-      .from('activity_registrations')
-      .update({
-        attended,
-        service_hours: serviceHours,
-      })
-      .eq('id', registrationId)
-      .select()
-      .single()
+    // 使用管理員 RPC 記錄出席
+    const { data, error } = await supabase.rpc('admin_record_attendance', {
+      p_registration_id: registrationId,
+      p_attended: attended,
+      p_service_hours: serviceHours || 0,
+    })
 
     if (error) {
       console.error('Error recording attendance:', error)

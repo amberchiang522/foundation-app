@@ -1,8 +1,23 @@
 // R2 Storage Client - communicates with Cloudflare Worker
 
+import { supabase } from '@/lib/supabase'
+
 const R2_WORKER_URL = import.meta.env.VITE_R2_WORKER_URL || ''
 
+// Get current user's access token for authentication
+async function getAuthToken(): Promise<string | null> {
+  const { data: { session } } = await supabase.auth.getSession()
+  return session?.access_token || null
+}
+
 export type R2BucketName = 'avatars' | 'activities' | 'projects' | 'plans' | 'attachments'
+
+// Private buckets that require authentication for download
+const PRIVATE_BUCKETS: R2BucketName[] = ['attachments', 'projects']
+
+export function isPrivateBucket(bucket: R2BucketName): boolean {
+  return PRIVATE_BUCKETS.includes(bucket)
+}
 
 export interface R2UploadResult {
   success: boolean
@@ -44,9 +59,15 @@ class R2Client {
       throw new Error('R2 Worker URL not configured. Set VITE_R2_WORKER_URL in environment.')
     }
 
+    const token = await getAuthToken()
+    if (!token) {
+      throw new Error('Not authenticated. Please login to upload files.')
+    }
+
     const response = await fetch(`${this.workerUrl}/upload`, {
       method: 'POST',
       headers: {
+        'Authorization': `Bearer ${token}`,
         'X-Bucket': bucket,
         'X-Path': path,
         'X-Content-Type': contentType || file.type || 'application/octet-stream',
@@ -70,9 +91,15 @@ class R2Client {
       throw new Error('R2 Worker URL not configured')
     }
 
+    const token = await getAuthToken()
+    if (!token) {
+      throw new Error('Not authenticated. Please login to delete files.')
+    }
+
     const response = await fetch(`${this.workerUrl}/delete`, {
       method: 'POST',
       headers: {
+        'Authorization': `Bearer ${token}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({ bucket, path }),
@@ -86,11 +113,16 @@ class R2Client {
   }
 
   /**
-   * List files in a bucket (for migration purposes)
+   * List files in a bucket (admin only, for migration purposes)
    */
   async list(bucket: R2BucketName, prefix?: string, cursor?: string): Promise<R2ListResult> {
     if (!this.workerUrl) {
       throw new Error('R2 Worker URL not configured')
+    }
+
+    const token = await getAuthToken()
+    if (!token) {
+      throw new Error('Not authenticated. Please login to list files.')
     }
 
     const params = new URLSearchParams({ bucket })
@@ -99,6 +131,9 @@ class R2Client {
 
     const response = await fetch(`${this.workerUrl}/list?${params}`, {
       method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+      },
     })
 
     if (!response.ok) {
@@ -110,7 +145,8 @@ class R2Client {
   }
 
   /**
-   * Get public URL for a file (served via Worker)
+   * Get URL for a file (served via Worker)
+   * Note: For private buckets, use fetchPrivateFile() instead
    */
   getPublicUrl(bucket: R2BucketName, path: string): string {
     if (!this.workerUrl) {
@@ -119,6 +155,46 @@ class R2Client {
     }
     // Use Worker to serve files for reliable access
     return `${this.workerUrl}/file/${bucket}/${path}`
+  }
+
+  /**
+   * Fetch a private file with authentication and return a blob URL
+   * Use this for private buckets (attachments, projects)
+   */
+  async fetchPrivateFile(bucket: R2BucketName, path: string): Promise<string> {
+    if (!this.workerUrl) {
+      throw new Error('R2 Worker URL not configured')
+    }
+
+    const token = await getAuthToken()
+    if (!token) {
+      throw new Error('Not authenticated. Please login to access files.')
+    }
+
+    const response = await fetch(`${this.workerUrl}/file/${bucket}/${path}`, {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+      },
+    })
+
+    if (!response.ok) {
+      throw new Error(`Failed to fetch file: ${response.status}`)
+    }
+
+    const blob = await response.blob()
+    return URL.createObjectURL(blob)
+  }
+
+  /**
+   * Get file URL - automatically handles public vs private buckets
+   * For private buckets, returns a Promise that resolves to a blob URL
+   * For public buckets, returns a Promise that resolves to the direct URL
+   */
+  async getFileUrl(bucket: R2BucketName, path: string): Promise<string> {
+    if (isPrivateBucket(bucket)) {
+      return this.fetchPrivateFile(bucket, path)
+    }
+    return this.getPublicUrl(bucket, path)
   }
 
   /**

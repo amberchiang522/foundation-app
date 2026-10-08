@@ -6,6 +6,100 @@ interface Env {
   ATTACHMENTS: R2Bucket
   ALLOWED_ORIGINS: string
   R2_PUBLIC_URL: string
+  SUPABASE_JWT_SECRET: string
+}
+
+interface JwtPayload {
+  sub?: string // user id (may be missing for anon)
+  role: string
+  aud: string
+  iss?: string
+  exp?: number
+  iat?: number
+  // Custom claims from Supabase (app_metadata.role from profiles table)
+  user_role?: string
+}
+
+// Forbidden JWT roles - these are API keys, not user sessions
+const FORBIDDEN_ROLES = ['anon', 'service_role']
+
+// Simple JWT verification for Cloudflare Workers
+async function verifyJwt(token: string, secret: string): Promise<JwtPayload | null> {
+  try {
+    const parts = token.split('.')
+    if (parts.length !== 3) return null
+
+    const [headerB64, payloadB64, signatureB64] = parts
+
+    // Decode payload
+    const payload = JSON.parse(atob(payloadB64.replace(/-/g, '+').replace(/_/g, '/'))) as JwtPayload
+
+    // CRITICAL: Reject anon and service_role tokens - these are API keys, not user sessions
+    if (FORBIDDEN_ROLES.includes(payload.role)) {
+      return null
+    }
+
+    // CRITICAL: Must have a valid user ID (sub claim)
+    if (!payload.sub || typeof payload.sub !== 'string' || payload.sub.trim() === '') {
+      return null
+    }
+
+    // CRITICAL: Must have expiration and not be expired
+    if (!payload.exp || payload.exp < Math.floor(Date.now() / 1000)) {
+      return null
+    }
+
+    // Verify signature using Web Crypto API
+    const encoder = new TextEncoder()
+    const key = await crypto.subtle.importKey(
+      'raw',
+      encoder.encode(secret),
+      { name: 'HMAC', hash: 'SHA-256' },
+      false,
+      ['verify']
+    )
+
+    const signatureArray = Uint8Array.from(
+      atob(signatureB64.replace(/-/g, '+').replace(/_/g, '/')),
+      c => c.charCodeAt(0)
+    )
+
+    const data = encoder.encode(`${headerB64}.${payloadB64}`)
+    const valid = await crypto.subtle.verify('HMAC', key, signatureArray, data)
+
+    return valid ? payload : null
+  } catch {
+    return null
+  }
+}
+
+// Extract and verify auth token from request
+async function authenticateRequest(request: Request, env: Env): Promise<{ user: JwtPayload } | { error: string }> {
+  const authHeader = request.headers.get('Authorization')
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return { error: 'Missing or invalid Authorization header' }
+  }
+
+  const token = authHeader.substring(7)
+  const payload = await verifyJwt(token, env.SUPABASE_JWT_SECRET)
+
+  if (!payload) {
+    return { error: 'Invalid, expired, or unauthorized token' }
+  }
+
+  return { user: payload }
+}
+
+// Check if user has admin role in the application (not JWT role)
+// This requires checking user_role from custom claims or querying database
+function isAppAdmin(user: JwtPayload): boolean {
+  // Check custom claim if available (set via Supabase auth hook)
+  if (user.user_role === 'admin' || user.user_role === 'super_admin') {
+    return true
+  }
+  // Fallback: For now, we don't have custom claims, so we restrict admin operations
+  // In production, you should add a custom claim via Supabase auth hook
+  return false
 }
 
 type BucketName = 'avatars' | 'activities' | 'projects' | 'plans' | 'attachments'
@@ -18,14 +112,23 @@ const BUCKET_MAP: Record<BucketName, keyof Env> = {
   attachments: 'ATTACHMENTS',
 }
 
+// Define which buckets are private (require authentication for download)
+const PRIVATE_BUCKETS: BucketName[] = ['attachments', 'projects']
+
+function isPrivateBucket(bucketName: BucketName): boolean {
+  return PRIVATE_BUCKETS.includes(bucketName)
+}
+
 function getCorsHeaders(request: Request, env: Env): HeadersInit {
   const origin = request.headers.get('Origin') || ''
   const allowedOrigins = env.ALLOWED_ORIGINS.split(',').map(o => o.trim())
 
-  const isAllowed = allowedOrigins.includes(origin) || allowedOrigins.includes('*')
+  // Allow all origins if '*' is in the list, or if origin matches
+  const isAllowed = allowedOrigins.includes('*') || allowedOrigins.includes(origin)
 
+  // Always return '*' for public file access to avoid CORS issues with PDF.js workers
   return {
-    'Access-Control-Allow-Origin': isAllowed ? origin || '*' : allowedOrigins[0],
+    'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'GET, HEAD, POST, PUT, DELETE, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Bucket, X-Path, X-Content-Type, Range',
     'Access-Control-Expose-Headers': 'Content-Length, Content-Range, Accept-Ranges',
@@ -58,24 +161,57 @@ export default {
         })
       }
 
-      // Upload file directly
+      // Upload file directly (requires authentication)
       if (path === '/upload' && request.method === 'POST') {
-        return handleUpload(request, env, corsHeaders)
+        const auth = await authenticateRequest(request, env)
+        if ('error' in auth) {
+          return new Response(JSON.stringify({ error: auth.error }), {
+            status: 401,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          })
+        }
+        return handleUpload(request, env, corsHeaders, auth.user)
       }
 
-      // Delete file
+      // Delete file (requires authentication)
       if (path === '/delete' && request.method === 'POST') {
-        return handleDelete(request, env, corsHeaders)
+        const auth = await authenticateRequest(request, env)
+        if ('error' in auth) {
+          return new Response(JSON.stringify({ error: auth.error }), {
+            status: 401,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          })
+        }
+        return handleDelete(request, env, corsHeaders, auth.user)
       }
 
-      // List files in bucket (for migration)
+      // List files in bucket (disabled - admin operations should use Cloudflare dashboard)
       if (path === '/list' && request.method === 'GET') {
-        return handleList(request, env, corsHeaders)
+        // List operation is disabled for security - use Cloudflare dashboard for admin tasks
+        return new Response(JSON.stringify({ error: 'List operation is disabled' }), {
+          status: 403,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        })
       }
 
       // Serve files: /file/{bucket}/{path}
+      // Private buckets require authentication
       if (path.startsWith('/file/') && (request.method === 'GET' || request.method === 'HEAD')) {
-        return handleGetFile(request, env, corsHeaders)
+        // Extract bucket name to check if private
+        const pathParts = path.replace('/file/', '').split('/')
+        const bucketName = pathParts[0] as BucketName
+
+        if (isPrivateBucket(bucketName)) {
+          const auth = await authenticateRequest(request, env)
+          if ('error' in auth) {
+            return new Response(JSON.stringify({ error: auth.error }), {
+              status: 401,
+              headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+            })
+          }
+          return handleGetFile(request, env, corsHeaders, auth.user)
+        }
+        return handleGetFile(request, env, corsHeaders, null)
       }
 
       return new Response(JSON.stringify({ error: 'Not found' }), {
@@ -92,7 +228,7 @@ export default {
   },
 }
 
-async function handleUpload(request: Request, env: Env, corsHeaders: HeadersInit): Promise<Response> {
+async function handleUpload(request: Request, env: Env, corsHeaders: HeadersInit, user: JwtPayload): Promise<Response> {
   const bucketName = request.headers.get('X-Bucket') as BucketName
   const filePath = request.headers.get('X-Path')
   const contentType = request.headers.get('X-Content-Type') || 'application/octet-stream'
@@ -102,6 +238,37 @@ async function handleUpload(request: Request, env: Env, corsHeaders: HeadersInit
       status: 400,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     })
+  }
+
+  // Authorization checks for each bucket type
+  // Avatars: users can only upload to their own path (user_id/filename)
+  if (bucketName === 'avatars') {
+    if (!filePath.startsWith(`${user.sub}/`)) {
+      return new Response(JSON.stringify({ error: 'Cannot upload to other user avatar path' }), {
+        status: 403,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      })
+    }
+  }
+  // Activities/Plans: files must be prefixed with user ID for ownership tracking
+  else if (bucketName === 'activities' || bucketName === 'plans') {
+    // Enforce user ID prefix for ownership (format: user_id/activity_id/filename)
+    if (!filePath.startsWith(`${user.sub}/`)) {
+      return new Response(JSON.stringify({ error: 'File path must start with your user ID' }), {
+        status: 403,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      })
+    }
+  }
+  // Projects/Attachments: private buckets, must have user ID prefix
+  else if (bucketName === 'projects' || bucketName === 'attachments') {
+    // Enforce user ID prefix for ownership tracking
+    if (!filePath.startsWith(`${user.sub}/`)) {
+      return new Response(JSON.stringify({ error: 'Private files must be prefixed with your user ID' }), {
+        status: 403,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      })
+    }
   }
 
   const bucket = getBucket(env, bucketName)
@@ -138,10 +305,15 @@ async function handleUpload(request: Request, env: Env, corsHeaders: HeadersInit
     })
   }
 
+  // Use appropriate cache settings based on bucket type
+  const cacheControl = isPrivateBucket(bucketName)
+    ? 'private, no-store, must-revalidate'
+    : 'public, max-age=31536000'
+
   await bucket.put(filePath, body, {
     httpMetadata: {
       contentType,
-      cacheControl: 'public, max-age=31536000',
+      cacheControl,
     },
   })
 
@@ -162,12 +334,20 @@ async function handleUpload(request: Request, env: Env, corsHeaders: HeadersInit
   })
 }
 
-async function handleDelete(request: Request, env: Env, corsHeaders: HeadersInit): Promise<Response> {
+async function handleDelete(request: Request, env: Env, corsHeaders: HeadersInit, user: JwtPayload): Promise<Response> {
   const { bucket: bucketName, path: filePath } = await request.json() as { bucket: BucketName; path: string }
 
   if (!bucketName || !filePath) {
     return new Response(JSON.stringify({ error: 'Missing bucket or path' }), {
       status: 400,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    })
+  }
+
+  // Authorization checks - users can only delete files they own (prefixed with their user ID)
+  if (!filePath.startsWith(`${user.sub}/`)) {
+    return new Response(JSON.stringify({ error: 'Cannot delete files owned by other users' }), {
+      status: 403,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     })
   }
@@ -230,7 +410,7 @@ async function handleList(request: Request, env: Env, corsHeaders: HeadersInit):
   })
 }
 
-async function handleGetFile(request: Request, env: Env, corsHeaders: HeadersInit): Promise<Response> {
+async function handleGetFile(request: Request, env: Env, corsHeaders: HeadersInit, user: JwtPayload | null): Promise<Response> {
   const url = new URL(request.url)
   // Path format: /file/{bucket}/{...path}
   const pathParts = url.pathname.replace('/file/', '').split('/')
@@ -242,6 +422,16 @@ async function handleGetFile(request: Request, env: Env, corsHeaders: HeadersIni
       status: 400,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     })
+  }
+
+  // Authorization for private buckets - users can only access their own files
+  if (isPrivateBucket(bucketName) && user) {
+    if (!filePath.startsWith(`${user.sub}/`)) {
+      return new Response(JSON.stringify({ error: 'Cannot access files owned by other users' }), {
+        status: 403,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      })
+    }
   }
 
   const bucket = getBucket(env, bucketName)
@@ -270,7 +460,12 @@ async function handleGetFile(request: Request, env: Env, corsHeaders: HeadersIni
 
   const headers = new Headers(corsHeaders)
   headers.set('Content-Type', object.httpMetadata?.contentType || 'application/octet-stream')
-  headers.set('Cache-Control', 'public, max-age=31536000')
+  // Use appropriate cache settings: private buckets use no-store, public use long cache
+  if (isPrivateBucket(bucketName)) {
+    headers.set('Cache-Control', 'private, no-store, must-revalidate')
+  } else {
+    headers.set('Cache-Control', 'public, max-age=31536000')
+  }
   headers.set('ETag', object.httpEtag)
   headers.set('Accept-Ranges', 'bytes')
   headers.set('Content-Length', object.size.toString())

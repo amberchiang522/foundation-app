@@ -18,7 +18,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Badge } from "@/components/ui/badge"
-import { GoogleDriveInput } from "@/components/upload"
+import { MultiImageUploader } from "@/components/upload"
 import { eventReviewService, projectService } from "@/services"
 import type { EventReviewWithDetails, Plan, ImageData } from "@/types"
 import { format } from "date-fns"
@@ -386,10 +386,29 @@ export function EventReviewsPage() {
             {/* Images */}
             <div className="space-y-2">
               <Label>照片</Label>
-              <GoogleDriveInput
-                value={formData.images}
-                onChange={(images) => setFormData({ ...formData, images })}
-                maxImages={50}
+              <MultiImageUploader
+                type="event-review"
+                value={formData.images.map(img => ({
+                  id: img.id || '',
+                  originalUrl: img.originalUrl,
+                  thumbnailUrl: img.thumbnailUrl || img.originalUrl,
+                  fileName: img.fileName || '',
+                  fileSize: img.fileSize || 0,
+                  mimeType: img.mimeType || 'image/jpeg',
+                  order: img.order || 0,
+                }))}
+                onChange={(images) => setFormData({
+                  ...formData,
+                  images: images.map(img => ({
+                    id: img.id,
+                    originalUrl: img.originalUrl,
+                    thumbnailUrl: img.thumbnailUrl,
+                    fileName: img.fileName,
+                    fileSize: img.fileSize,
+                    mimeType: img.mimeType,
+                    order: img.order,
+                  }))
+                })}
               />
             </div>
 

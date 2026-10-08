@@ -275,13 +275,6 @@ export function PlansPage() {
   const inlineExecContentRef = useRef<HTMLTextAreaElement>(null)
   const [inlineExecAttachments, setInlineExecAttachments] = useState<ImageUploadResult[]>([])
 
-  // PDF 生成狀態
-  const [isGeneratingPdf, setIsGeneratingPdf] = useState(false)
-  const [pdfReplaceDialog, setPdfReplaceDialog] = useState<{
-    open: boolean
-    existingPdf?: { id: string; url: string; fileName: string; fileSize?: number; uploadedAt?: string }
-    newPdfData?: { id: string; url: string; fileName: string; fileSize: number; uploadedAt: string }
-  }>({ open: false })
 
 
   // Edit mode for pending executions
@@ -3620,157 +3613,6 @@ export function PlansPage() {
                                       )}
                                     </div>
 
-                                    {/* 生成 PDF 按鈕 - 未完成時灰色不可點擊 */}
-                                    <div className="pt-4 border-t">
-                                      <Button
-                                        variant="outline"
-                                        className="w-full"
-                                        disabled={isGeneratingPdf || step.status !== "approved"}
-                                        onClick={async () => {
-                                          if (!selectedProject) return
-
-                                          console.log('[PDF生成] 開始生成 PDF...')
-                                          setIsGeneratingPdf(true)
-                                          try {
-                                            // 從當前評估表收集資料（作為預設值）
-                                            const evalData = parseEvaluationData(step.note)
-                                            console.log('[PDF生成] 資料庫中的評估資料:', evalData)
-                                            const evaluationScores: Record<string, { score: number; note: string }> = {}
-
-                                            // 總是嘗試從 DOM 收集最新值（不管 canEditStep 狀態）
-                                            console.log('[PDF生成] 從 DOM 收集最新值...')
-                                            let hasCollectedFromDOM = false
-                                            EVALUATION_CRITERIA.forEach(criteria => {
-                                              const scoreInput = document.querySelector(`input[data-eval-score="${criteria.id}"]`) as HTMLInputElement
-                                              const noteInput = document.querySelector(`textarea[data-eval-note="${criteria.id}"]`) as HTMLTextAreaElement
-
-                                              if (scoreInput) {
-                                                hasCollectedFromDOM = true
-                                                evaluationScores[criteria.id] = {
-                                                  score: parseInt(scoreInput.value) || 0,
-                                                  note: noteInput?.value || ''
-                                                }
-                                                console.log(`[PDF生成] 從DOM收集: ${criteria.id} = ${scoreInput.value}`)
-                                              } else {
-                                                // DOM 中沒有找到，使用資料庫中的值
-                                                evaluationScores[criteria.id] = evalData?.evaluationScores?.[criteria.id] || { score: 0, note: '' }
-                                                console.log(`[PDF生成] 從資料庫取得: ${criteria.id} = ${evaluationScores[criteria.id].score}`)
-                                              }
-                                            })
-
-                                            console.log('[PDF生成] hasCollectedFromDOM:', hasCollectedFromDOM)
-                                            console.log('[PDF生成] 最終 evaluationScores:', JSON.stringify(evaluationScores, null, 2))
-
-                                            const conclusionInput = document.querySelector(`textarea[data-eval-conclusion="true"]`) as HTMLTextAreaElement
-                                            const conclusion = conclusionInput?.value || evalData?.conclusion || ''
-
-                                            const currentPurposes = evalPurpose ? [evalPurpose] : (evalData?.purposes || [])
-                                            const currentSubsidyType = evalSubsidyType || evalData?.subsidyType || ''
-
-                                            const oneTimeMonth = (document.getElementById(`eval-oneTimeMonth-${step.id}`) as HTMLInputElement)?.value || evalData?.oneTimeMonth || ''
-                                            const oneTimeAmount = (document.getElementById(`eval-oneTimeAmount-${step.id}`) as HTMLInputElement)?.value || evalData?.oneTimeAmount || ''
-                                            const periodStart = (document.getElementById(`eval-periodStart-${step.id}`) as HTMLInputElement)?.value || evalData?.periodStart || ''
-                                            const periodEnd = (document.getElementById(`eval-periodEnd-${step.id}`) as HTMLInputElement)?.value || evalData?.periodEnd || ''
-                                            const isMonthly = (document.getElementById(`eval-frequency-monthly-${step.id}`) as HTMLInputElement)?.checked
-                                            const frequency = isMonthly ? 'monthly' : (evalData?.frequency || 'periodic')
-                                            const periodicMonths = (document.getElementById(`eval-periodicMonths-${step.id}`) as HTMLInputElement)?.value || evalData?.periodicMonths || ''
-                                            const periodicAmount = (document.getElementById(`eval-periodicAmount-${step.id}`) as HTMLInputElement)?.value || evalData?.periodicAmount || ''
-
-                                            const totalScore = Object.values(evaluationScores).reduce((sum, item) => sum + (item?.score || 0), 0)
-
-                                            // 生成 PDF
-                                            const { generateAndUploadEvaluationPdf } = await import('@/services/pdfService')
-                                            const pdfData = await generateAndUploadEvaluationPdf({
-                                              caseNumber: selectedProject.name,
-                                              caseName: selectedProject.name,
-                                              evaluationDate: new Date().toISOString().split('T')[0],
-                                              evaluationScores,
-                                              conclusion,
-                                              purposes: currentPurposes,
-                                              subsidyType: currentSubsidyType as 'oneTime' | 'periodic' | '',
-                                              oneTimeMonth,
-                                              oneTimeAmount,
-                                              periodStart,
-                                              periodEnd,
-                                              frequency,
-                                              periodicMonths,
-                                              periodicAmount,
-                                              totalScore,
-                                            })
-
-                                            console.log('[PDF生成] PDF 已生成:', pdfData.url)
-
-                                            // 檢查評議委員會步驟是否已有 PDF
-                                            const committeeStepIndex = selectedProject.workflow.findIndex(s => s.name.includes("評議委員會"))
-                                            console.log('[PDF生成] 評議委員會步驟索引:', committeeStepIndex)
-                                            if (committeeStepIndex !== -1) {
-                                              const committeeStep = selectedProject.workflow[committeeStepIndex]
-                                              let existingPdf = null
-                                              try {
-                                                if (committeeStep.note) {
-                                                  const noteData = JSON.parse(committeeStep.note)
-                                                  existingPdf = noteData.evaluationPdf
-                                                }
-                                              } catch {}
-                                              console.log('[PDF生成] 現有 PDF:', existingPdf?.url || '無')
-
-                                              if (existingPdf?.url) {
-                                                // 已有 PDF，詢問是否覆蓋
-                                                console.log('[PDF生成] 顯示覆蓋對話框')
-                                                setPdfReplaceDialog({
-                                                  open: true,
-                                                  existingPdf,
-                                                  newPdfData: {
-                                                    id: pdfData.id,
-                                                    url: pdfData.url,
-                                                    fileName: pdfData.fileName,
-                                                    fileSize: pdfData.fileSize,
-                                                    uploadedAt: pdfData.uploadedAt,
-                                                  },
-                                                })
-                                              } else {
-                                                // 沒有現有 PDF，直接上傳
-                                                console.log('[PDF生成] 無現有 PDF，直接儲存')
-                                                const newWorkflow = [...selectedProject.workflow]
-                                                const existingNote = newWorkflow[committeeStepIndex].note ? JSON.parse(newWorkflow[committeeStepIndex].note) : {}
-                                                newWorkflow[committeeStepIndex].note = JSON.stringify({
-                                                  ...existingNote,
-                                                  evaluationPdf: {
-                                                    id: pdfData.id,
-                                                    url: pdfData.url,
-                                                    fileName: pdfData.fileName,
-                                                    fileSize: pdfData.fileSize,
-                                                    uploadedAt: pdfData.uploadedAt,
-                                                  },
-                                                })
-                                                await projectService.updateProject(selectedProject.id, { workflow: newWorkflow })
-                                                const updated = await projectService.getProjectById(selectedProject.id)
-                                                if (updated) setSelectedProject(updated)
-                                                alert('PDF 已生成並上傳到評議委員會')
-                                              }
-                                            }
-                                          } catch (error) {
-                                            console.error('Failed to generate PDF:', error)
-                                            alert('PDF 生成失敗，請稍後再試')
-                                          } finally {
-                                            setIsGeneratingPdf(false)
-                                          }
-                                        }}
-                                      >
-                                        {isGeneratingPdf ? (
-                                          <>
-                                            <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin mr-2" />
-                                            生成中...
-                                          </>
-                                        ) : (
-                                          <>
-                                            <FileText className="h-4 w-4 mr-2" />
-                                            生成評估表 PDF
-                                          </>
-                                        )}
-                                      </Button>
-                                    </div>
-
                                   </div>
                               )}
 
@@ -6093,11 +5935,13 @@ export function PlansPage() {
                     <SelectValue placeholder="選擇機構" />
                   </SelectTrigger>
                   <SelectContent>
-                    {organizations.map((org) => (
-                      <SelectItem key={org.id} value={org.id}>
-                        {org.name}
-                      </SelectItem>
-                    ))}
+                    {organizations
+                      .filter((org) => org.cooperationStatus === "cooperating" || org.cooperationStatus === "referral_only")
+                      .map((org) => (
+                        <SelectItem key={org.id} value={org.id}>
+                          {org.name}
+                        </SelectItem>
+                      ))}
                   </SelectContent>
                 </Select>
               </div>
@@ -6577,91 +6421,6 @@ export function PlansPage() {
               </Button>
             </div>
           </div>
-        </DialogContent>
-      </Dialog>
-
-      {/* PDF 覆蓋確認對話框 */}
-      <Dialog open={pdfReplaceDialog.open} onOpenChange={(open) => !open && setPdfReplaceDialog({ open: false })}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>已有評估表 PDF</DialogTitle>
-            <DialogDescription>
-              評議委員會步驟已有一份評估表 PDF，請選擇要如何處理：
-            </DialogDescription>
-          </DialogHeader>
-          <div className="py-4">
-            <p className="text-sm text-muted-foreground">
-              現有檔案：{pdfReplaceDialog.existingPdf?.fileName || '評估表.pdf'}
-            </p>
-          </div>
-          <DialogFooter className="gap-2 sm:gap-0">
-            <Button
-              variant="outline"
-              onClick={() => {
-                setPdfReplaceDialog({ open: false })
-                alert('已保留原有 PDF')
-              }}
-            >
-              保留原本
-            </Button>
-            <Button
-              onClick={async () => {
-                // 覆蓋：使用新的 PDF 資料，並刪除舊的
-                console.log('[PDF覆蓋] 點擊覆蓋按鈕')
-                console.log('[PDF覆蓋] 新 PDF 資料:', pdfReplaceDialog.newPdfData)
-                console.log('[PDF覆蓋] 舊 PDF 資料:', pdfReplaceDialog.existingPdf)
-                try {
-                  if (selectedProject && pdfReplaceDialog.newPdfData) {
-                    const committeeStepIndex = selectedProject.workflow.findIndex(s => s.name.includes("評議委員會"))
-                    console.log('[PDF覆蓋] 評議委員會步驟索引:', committeeStepIndex)
-                    if (committeeStepIndex !== -1) {
-                      // 刪除舊的 PDF
-                      if (pdfReplaceDialog.existingPdf?.id) {
-                        try {
-                          const { pdfService } = await import('@/services/pdfService')
-                          console.log('[PDF覆蓋] 刪除舊 PDF:', pdfReplaceDialog.existingPdf.id)
-                          await pdfService.delete({
-                            ...pdfReplaceDialog.existingPdf,
-                            fileSize: pdfReplaceDialog.existingPdf.fileSize ?? 0,
-                            uploadedAt: pdfReplaceDialog.existingPdf.uploadedAt ?? new Date().toISOString()
-                          })
-                          console.log('[PDF覆蓋] 舊 PDF 已刪除')
-                        } catch (deleteError) {
-                          console.warn('[PDF覆蓋] 刪除舊 PDF 失敗（繼續儲存新的）:', deleteError)
-                        }
-                      }
-
-                      const newWorkflow = [...selectedProject.workflow]
-                      let existingNote: Record<string, unknown> = {}
-                      try {
-                        if (newWorkflow[committeeStepIndex].note) {
-                          existingNote = JSON.parse(newWorkflow[committeeStepIndex].note)
-                        }
-                      } catch {}
-                      existingNote.evaluationPdf = pdfReplaceDialog.newPdfData
-                      newWorkflow[committeeStepIndex].note = JSON.stringify(existingNote)
-                      console.log('[PDF覆蓋] 儲存中...')
-                      await projectService.updateProject(selectedProject.id, { workflow: newWorkflow })
-                      console.log('[PDF覆蓋] 儲存成功，重新載入專案...')
-                      const updated = await projectService.getProjectById(selectedProject.id)
-                      if (updated) {
-                        console.log('[PDF覆蓋] 專案已更新')
-                        setSelectedProject(updated)
-                      }
-                    }
-                  }
-                  setPdfReplaceDialog({ open: false })
-                  alert('PDF 已覆蓋（舊檔案已刪除）')
-                } catch (error) {
-                  console.error('[PDF覆蓋] 儲存失敗:', error)
-                  alert('儲存失敗，請稍後再試')
-                  setPdfReplaceDialog({ open: false })
-                }
-              }}
-            >
-              覆蓋
-            </Button>
-          </DialogFooter>
         </DialogContent>
       </Dialog>
 

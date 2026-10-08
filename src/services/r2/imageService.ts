@@ -2,6 +2,7 @@ import imageCompression from 'browser-image-compression'
 import type { ImageType, ImageUploadResult, ImageService } from '../imageService'
 import { imageConfig, validateFile } from '../imageService'
 import { r2Client, type R2BucketName } from './r2Client'
+import { supabase } from '@/lib/supabase'
 
 // Map image types to R2 buckets
 const bucketMap: Record<ImageType, R2BucketName> = {
@@ -15,13 +16,24 @@ const bucketMap: Record<ImageType, R2BucketName> = {
   'forum-image': 'activities', // Using activities bucket for forum images
 }
 
-// Generate unique file path
-function generateFilePath(type: ImageType, fileName: string): string {
+// Get current user ID for file path prefix
+async function getCurrentUserId(): Promise<string> {
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) {
+    throw new Error('Not authenticated')
+  }
+  return user.id
+}
+
+// Generate unique file path with user ID prefix for ownership
+async function generateFilePath(type: ImageType, fileName: string): Promise<string> {
+  const userId = await getCurrentUserId()
   const timestamp = Date.now()
   const random = Math.random().toString(36).substring(2, 8)
   const ext = fileName.split('.').pop() || 'jpg'
   const folder = type.replace('-', '/')
-  return `${folder}/${timestamp}_${random}.${ext}`
+  // All files are prefixed with user ID for ownership verification
+  return `${userId}/${folder}/${timestamp}_${random}.${ext}`
 }
 
 class R2ImageService implements ImageService {
@@ -33,7 +45,7 @@ class R2ImageService implements ImageService {
 
     const config = imageConfig[type]
     const bucket = bucketMap[type]
-    const filePath = generateFilePath(type, file.name)
+    const filePath = await generateFilePath(type, file.name)
 
     // Compress image if needed
     let uploadFile: File | Blob = file

@@ -30,7 +30,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { ImageUploader, MultiImageUploader, GoogleDriveInput } from "@/components/upload"
+import { ImageUploader, MultiImageUploader } from "@/components/upload"
 import { useAuth } from "@/contexts/AuthContext"
 import { activityService, userService, eventReviewService, projectService, type ImageUploadResult } from "@/services"
 import type { Activity, ActivityRegistration, User, ImageData, Plan } from "@/types"
@@ -998,10 +998,26 @@ export function ActivitiesManagePage() {
 
             <div className="space-y-2">
               <Label>活動照片</Label>
-              <GoogleDriveInput
-                value={reviewImages}
-                onChange={setReviewImages}
-                maxImages={50}
+              <MultiImageUploader
+                type="event-review"
+                value={reviewImages.map(img => ({
+                  id: img.id || '',
+                  originalUrl: img.originalUrl,
+                  thumbnailUrl: img.thumbnailUrl || img.originalUrl,
+                  fileName: img.fileName || '',
+                  fileSize: img.fileSize || 0,
+                  mimeType: img.mimeType || 'image/jpeg',
+                  order: img.order || 0,
+                }))}
+                onChange={(images) => setReviewImages(images.map(img => ({
+                  id: img.id,
+                  originalUrl: img.originalUrl,
+                  thumbnailUrl: img.thumbnailUrl,
+                  fileName: img.fileName,
+                  fileSize: img.fileSize,
+                  mimeType: img.mimeType,
+                  order: img.order,
+                })))}
               />
             </div>
           </div>
