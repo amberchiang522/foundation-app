@@ -2370,11 +2370,19 @@ export function OrganizationsPage() {
                     <SelectValue placeholder="請選擇要訪視的機構" />
                   </SelectTrigger>
                   <SelectContent>
-                    {organizations.map(org => (
-                      <SelectItem key={org.id} value={org.id}>
-                        {org.name} ({OrganizationCategoryLabels[org.category]})
-                      </SelectItem>
-                    ))}
+                    {[...organizations]
+                      .sort((a, b) => {
+                        // 不合作的排最後
+                        if (a.cooperationStatus === 'not_cooperating' && b.cooperationStatus !== 'not_cooperating') return 1
+                        if (a.cooperationStatus !== 'not_cooperating' && b.cooperationStatus === 'not_cooperating') return -1
+                        // 其他按建立時間新到舊排序
+                        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+                      })
+                      .map(org => (
+                        <SelectItem key={org.id} value={org.id}>
+                          {org.name} ({OrganizationCategoryLabels[org.category]})
+                        </SelectItem>
+                      ))}
                   </SelectContent>
                 </Select>
               ) : (
