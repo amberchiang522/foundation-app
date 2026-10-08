@@ -358,19 +358,38 @@ export interface WorkflowTemplate {
 // Organization Management Types
 // =====================================================
 
-// 機構類型
+// 機構類型 (舊 enum，保留向後相容)
 export type OrganizationCategory = 'orphanage' | 'association' | 'school' | 'hospital' | 'other'
+
+// 合作狀態
+export type CooperationStatus = 'cooperating' | 'not_cooperating' | 'referral_only' | 'evaluating'
 
 // 訪視狀態
 export type VisitStatus = 'pending' | 'completed' | 'cancelled'
 
-// 機構類型標籤對照
+// 機構類型標籤對照 (舊，保留向後相容)
 export const OrganizationCategoryLabels: Record<OrganizationCategory, string> = {
   orphanage: '育幼院',
   association: '協會',
   school: '學校',
   hospital: '醫療機構',
   other: '其他',
+}
+
+// 合作狀態標籤對照
+export const CooperationStatusLabels: Record<CooperationStatus, string> = {
+  cooperating: '合作',
+  not_cooperating: '不合作',
+  referral_only: '僅轉介個案',
+  evaluating: '討論評估中',
+}
+
+// 合作狀態顏色
+export const CooperationStatusColors: Record<CooperationStatus, 'success' | 'destructive' | 'warning' | 'secondary'> = {
+  cooperating: 'success',
+  not_cooperating: 'destructive',
+  referral_only: 'warning',
+  evaluating: 'secondary',
 }
 
 // 訪視狀態標籤對照
@@ -380,18 +399,34 @@ export const VisitStatusLabels: Record<VisitStatus, string> = {
   cancelled: '已取消',
 }
 
+// 機構類型 (可自訂)
+export interface OrganizationCategoryItem {
+  id: string
+  name: string
+  displayOrder: number
+  createdAt: string
+}
+
 // 機構
 export interface Organization {
   id: string
   name: string
-  category: OrganizationCategory
+  category: OrganizationCategory  // 舊欄位，保留向後相容
+  categoryName?: string           // 新欄位，可自訂類型名稱
+  cooperationStatus?: CooperationStatus  // 合作狀態
   contactPerson?: string
   address?: string
+  addressUrl?: string  // Google Maps 連結
   phone?: string
   website?: string
   lineId?: string
   notes?: string
   planIds?: string[]  // Multiple plans (many-to-many)
+  // 補助相關欄位
+  subsidyItems?: string      // 補助項目
+  subsidyAmount?: number     // 補助金額
+  deliveryMethod?: string    // 交付方式
+  deliveryStatus?: string    // 交付狀態
   createdBy: string
   createdAt: string
   updatedAt: string
@@ -408,18 +443,51 @@ export interface OrganizationWithDetails extends Organization {
   upcomingVisitCount?: number
 }
 
+// 補助紀錄
+export interface SubsidyRecord {
+  id: string
+  organizationId: string
+  subsidyDate?: string
+  subsidyItems: string
+  subsidyAmount?: number
+  deliveryMethod?: string
+  deliveryStatus?: string
+  notes?: string
+  createdBy: string
+  createdAt: string
+  updatedAt: string
+}
+
+// 下一步項目
+export interface NextStepItem {
+  id: string
+  content: string
+  completed: boolean
+}
+
+// 進度更新項目
+export interface ProgressUpdateItem {
+  id: string
+  date: string
+  content: string
+}
+
 // 訪視紀錄
 export interface VisitRecord {
   id: string
   organizationId: string
   visitDate: string
   visitorIds: string[]
+  customVisitors?: string[]  // 手動輸入的訪視人員名稱
   purpose?: string
   content?: string
   orgRequests?: string
   foundationRequests?: string
-  nextSteps?: string
-  progressUpdate?: string
+  nextSteps?: string  // 舊欄位，保留向後相容
+  nextStepsFoundation?: NextStepItem[]  // 基金會下一步
+  nextStepsOrg?: NextStepItem[]         // 機構下一步
+  progressUpdate?: string  // 舊欄位，保留向後相容
+  progressUpdates?: ProgressUpdateItem[]  // 進度更新列表
   attachments?: ImageData[]
   createdBy: string
   createdAt: string
