@@ -1,6 +1,8 @@
 import type {
   Organization,
   OrganizationWithDetails,
+  OrganizationCategoryItem,
+  SubsidyRecord,
   VisitRecord,
   VisitRecordWithDetails,
   UpcomingVisit,
@@ -165,6 +167,58 @@ const mockOrganizationService = {
   async getOrganizationsByPlan(planId: string): Promise<OrganizationWithDetails[]> {
     await new Promise(resolve => setTimeout(resolve, 200))
     return mockOrganizations.filter(o => o.planIds?.includes(planId))
+  },
+
+  // Organization Categories
+  async getOrganizationCategories(): Promise<OrganizationCategoryItem[]> {
+    await new Promise(resolve => setTimeout(resolve, 200))
+    return [
+      { id: '1', name: '育幼院', displayOrder: 1, createdAt: new Date().toISOString() },
+      { id: '2', name: '協會', displayOrder: 2, createdAt: new Date().toISOString() },
+      { id: '3', name: '學校', displayOrder: 3, createdAt: new Date().toISOString() },
+      { id: '4', name: '其他', displayOrder: 99, createdAt: new Date().toISOString() },
+    ]
+  },
+
+  async createOrganizationCategory(name: string): Promise<OrganizationCategoryItem | null> {
+    await new Promise(resolve => setTimeout(resolve, 200))
+    return { id: `cat-${Date.now()}`, name, displayOrder: 100, createdAt: new Date().toISOString() }
+  },
+
+  async deleteOrganizationCategory(_id: string): Promise<boolean> {
+    await new Promise(resolve => setTimeout(resolve, 200))
+    return true
+  },
+
+  // Subsidy Records
+  async getSubsidyRecords(_organizationId: string): Promise<SubsidyRecord[]> {
+    await new Promise(resolve => setTimeout(resolve, 200))
+    return []
+  },
+
+  async createSubsidyRecord(data: Omit<SubsidyRecord, 'id' | 'createdAt' | 'updatedAt'>): Promise<SubsidyRecord> {
+    await new Promise(resolve => setTimeout(resolve, 200))
+    return {
+      ...data,
+      id: `subsidy-${Date.now()}`,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    }
+  },
+
+  async updateSubsidyRecord(_id: string, _data: Partial<SubsidyRecord>): Promise<SubsidyRecord | null> {
+    await new Promise(resolve => setTimeout(resolve, 200))
+    return null
+  },
+
+  async deleteSubsidyRecord(_id: string): Promise<boolean> {
+    await new Promise(resolve => setTimeout(resolve, 200))
+    return true
+  },
+
+  async getAllSubsidyRecords(): Promise<(SubsidyRecord & { organization?: { id: string; name: string } })[]> {
+    await new Promise(resolve => setTimeout(resolve, 200))
+    return []
   },
 }
 

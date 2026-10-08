@@ -9,3 +9,4 @@ export { imageService, imageConfig, validateFile, type ImageType, type ImageUplo
 export { eventReviewService } from './eventReviewService'
 export { forumService } from './forumService'
 export { planPublicService } from './planPublicService'
+export { supabaseEvaluationService as evaluationService } from './supabase/evaluationService'
