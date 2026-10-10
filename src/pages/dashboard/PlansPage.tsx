@@ -3150,134 +3150,186 @@ export function PlansPage() {
                                     {/* 訪視紀錄 - 只有個人申請才顯示，放在最上面 */}
                                     {selectedProject.description === "個人" && (
                                       <div className="space-y-3 p-4 border rounded-lg bg-muted/30">
-                                        <div className="font-medium">訪視紀錄</div>
-                                        <div className="grid grid-cols-2 gap-4">
-                                          <div className="space-y-2">
-                                            <Label>訪視日期</Label>
-                                            {canEditStep() ? (
-                                              <Input
-                                                type="date"
-                                                defaultValue={(() => {
-                                                  try {
-                                                    const visit = JSON.parse(step.attachments?.[0]?.fileName || "{}")
-                                                    return visit.date || ""
-                                                  } catch { return "" }
-                                                })()}
-                                                onChange={(e) => {
-                                                  const currentData = (() => {
-                                                    try {
-                                                      return JSON.parse(step.attachments?.[0]?.fileName || "{}")
-                                                    } catch { return {} }
-                                                  })()
-                                                  currentData.date = e.target.value
-                                                  const visitData: ImageData = {
-                                                    id: "visit-record",
-                                                    originalUrl: "",
-                                                    thumbnailUrl: "",
-                                                    fileName: JSON.stringify(currentData),
-                                                    fileSize: 0,
-                                                    mimeType: "application/json",
-                                                    order: 0
-                                                  }
-                                                  handleUpdateStepAttachments(selectedProject, originalIndex, [visitData])
-                                                }}
-                                              />
-                                            ) : (
-                                              <div className="text-sm">
-                                                {(() => {
-                                                  try {
-                                                    const visit = JSON.parse(step.attachments?.[0]?.fileName || "{}")
-                                                    return visit.date || "-"
-                                                  } catch { return "-" }
-                                                })()}
-                                              </div>
-                                            )}
-                                          </div>
-                                          <div className="space-y-2">
-                                            <Label>訪視人員</Label>
-                                            {canEditStep() ? (
-                                              <Input
-                                                type="text"
-                                                placeholder="填寫訪視人員..."
-                                                defaultValue={(() => {
-                                                  try {
-                                                    const visit = JSON.parse(step.attachments?.[0]?.fileName || "{}")
-                                                    return visit.visitor || ""
-                                                  } catch { return "" }
-                                                })()}
-                                                onBlur={(e) => {
-                                                  const currentData = (() => {
-                                                    try {
-                                                      return JSON.parse(step.attachments?.[0]?.fileName || "{}")
-                                                    } catch { return {} }
-                                                  })()
-                                                  currentData.visitor = e.target.value
-                                                  const visitData: ImageData = {
-                                                    id: "visit-record",
-                                                    originalUrl: "",
-                                                    thumbnailUrl: "",
-                                                    fileName: JSON.stringify(currentData),
-                                                    fileSize: 0,
-                                                    mimeType: "application/json",
-                                                    order: 0
-                                                  }
-                                                  handleUpdateStepAttachments(selectedProject, originalIndex, [visitData])
-                                                }}
-                                              />
-                                            ) : (
-                                              <div className="text-sm">
-                                                {(() => {
-                                                  try {
-                                                    const visit = JSON.parse(step.attachments?.[0]?.fileName || "{}")
-                                                    return visit.visitor || "-"
-                                                  } catch { return "-" }
-                                                })()}
-                                              </div>
-                                            )}
-                                          </div>
-                                        </div>
-                                        <div className="space-y-2">
-                                          <Label>訪視內容</Label>
+                                        <div className="flex items-center justify-between">
+                                          <div className="font-medium">訪視紀錄</div>
                                           {canEditStep() ? (
-                                            <textarea
-                                              className="flex min-h-20 w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm"
-                                              placeholder="填寫訪視內容..."
-                                              defaultValue={(() => {
-                                                try {
-                                                  const visit = JSON.parse(step.attachments?.[0]?.fileName || "{}")
-                                                  return visit.content || ""
-                                                } catch { return "" }
-                                              })()}
-                                              onBlur={(e) => {
-                                                const currentData = (() => {
+                                            <label className="flex items-center gap-2 cursor-pointer">
+                                              <Checkbox
+                                                checked={(() => {
                                                   try {
-                                                    return JSON.parse(step.attachments?.[0]?.fileName || "{}")
-                                                  } catch { return {} }
-                                                })()
-                                                currentData.content = e.target.value
-                                                const visitData: ImageData = {
-                                                  id: "visit-record",
-                                                  originalUrl: "",
-                                                  thumbnailUrl: "",
-                                                  fileName: JSON.stringify(currentData),
-                                                  fileSize: 0,
-                                                  mimeType: "application/json",
-                                                  order: 0
-                                                }
-                                                handleUpdateStepAttachments(selectedProject, originalIndex, [visitData])
-                                              }}
-                                            />
+                                                    const visit = JSON.parse(step.attachments?.[0]?.fileName || "{}")
+                                                    return visit.hasVisit === true
+                                                  } catch { return false }
+                                                })()}
+                                                onCheckedChange={(checked) => {
+                                                  const currentData = (() => {
+                                                    try {
+                                                      return JSON.parse(step.attachments?.[0]?.fileName || "{}")
+                                                    } catch { return {} }
+                                                  })()
+                                                  currentData.hasVisit = !!checked
+                                                  const visitData: ImageData = {
+                                                    id: "visit-record",
+                                                    originalUrl: "",
+                                                    thumbnailUrl: "",
+                                                    fileName: JSON.stringify(currentData),
+                                                    fileSize: 0,
+                                                    mimeType: "application/json",
+                                                    order: 0
+                                                  }
+                                                  handleUpdateStepAttachments(selectedProject, originalIndex, [visitData])
+                                                }}
+                                              />
+                                              <span className="text-sm">有訪視</span>
+                                            </label>
                                           ) : (
-                                            <div className="text-sm whitespace-pre-wrap">
+                                            <span className="text-sm text-muted-foreground">
                                               {(() => {
                                                 try {
                                                   const visit = JSON.parse(step.attachments?.[0]?.fileName || "{}")
-                                                  return visit.content || "-"
-                                                } catch { return "-" }
+                                                  return visit.hasVisit ? "有訪視" : "無訪視"
+                                                } catch { return "無訪視" }
                                               })()}
-                                            </div>
+                                            </span>
                                           )}
                                         </div>
+                                        {/* 只有勾選有訪視才顯示詳細欄位 */}
+                                        {(() => {
+                                          try {
+                                            const visit = JSON.parse(step.attachments?.[0]?.fileName || "{}")
+                                            return visit.hasVisit === true
+                                          } catch { return false }
+                                        })() && (
+                                          <>
+                                            <div className="grid grid-cols-2 gap-4">
+                                              <div className="space-y-2">
+                                                <Label>訪視日期</Label>
+                                                {canEditStep() ? (
+                                                  <Input
+                                                    type="date"
+                                                    defaultValue={(() => {
+                                                      try {
+                                                        const visit = JSON.parse(step.attachments?.[0]?.fileName || "{}")
+                                                        return visit.date || ""
+                                                      } catch { return "" }
+                                                    })()}
+                                                    onChange={(e) => {
+                                                      const currentData = (() => {
+                                                        try {
+                                                          return JSON.parse(step.attachments?.[0]?.fileName || "{}")
+                                                        } catch { return {} }
+                                                      })()
+                                                      currentData.date = e.target.value
+                                                      const visitData: ImageData = {
+                                                        id: "visit-record",
+                                                        originalUrl: "",
+                                                        thumbnailUrl: "",
+                                                        fileName: JSON.stringify(currentData),
+                                                        fileSize: 0,
+                                                        mimeType: "application/json",
+                                                        order: 0
+                                                      }
+                                                      handleUpdateStepAttachments(selectedProject, originalIndex, [visitData])
+                                                    }}
+                                                  />
+                                                ) : (
+                                                  <div className="text-sm">
+                                                    {(() => {
+                                                      try {
+                                                        const visit = JSON.parse(step.attachments?.[0]?.fileName || "{}")
+                                                        return visit.date || "-"
+                                                      } catch { return "-" }
+                                                    })()}
+                                                  </div>
+                                                )}
+                                              </div>
+                                              <div className="space-y-2">
+                                                <Label>訪視人員</Label>
+                                                {canEditStep() ? (
+                                                  <Input
+                                                    type="text"
+                                                    placeholder="填寫訪視人員..."
+                                                    defaultValue={(() => {
+                                                      try {
+                                                        const visit = JSON.parse(step.attachments?.[0]?.fileName || "{}")
+                                                        return visit.visitor || ""
+                                                      } catch { return "" }
+                                                    })()}
+                                                    onBlur={(e) => {
+                                                      const currentData = (() => {
+                                                        try {
+                                                          return JSON.parse(step.attachments?.[0]?.fileName || "{}")
+                                                        } catch { return {} }
+                                                      })()
+                                                      currentData.visitor = e.target.value
+                                                      const visitData: ImageData = {
+                                                        id: "visit-record",
+                                                        originalUrl: "",
+                                                        thumbnailUrl: "",
+                                                        fileName: JSON.stringify(currentData),
+                                                        fileSize: 0,
+                                                        mimeType: "application/json",
+                                                        order: 0
+                                                      }
+                                                      handleUpdateStepAttachments(selectedProject, originalIndex, [visitData])
+                                                    }}
+                                                  />
+                                                ) : (
+                                                  <div className="text-sm">
+                                                    {(() => {
+                                                      try {
+                                                        const visit = JSON.parse(step.attachments?.[0]?.fileName || "{}")
+                                                        return visit.visitor || "-"
+                                                      } catch { return "-" }
+                                                    })()}
+                                                  </div>
+                                                )}
+                                              </div>
+                                            </div>
+                                            <div className="space-y-2">
+                                              <Label>訪視內容</Label>
+                                              {canEditStep() ? (
+                                                <textarea
+                                                  className="flex min-h-20 w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm"
+                                                  placeholder="填寫訪視內容..."
+                                                  defaultValue={(() => {
+                                                    try {
+                                                      const visit = JSON.parse(step.attachments?.[0]?.fileName || "{}")
+                                                      return visit.content || ""
+                                                    } catch { return "" }
+                                                  })()}
+                                                  onBlur={(e) => {
+                                                    const currentData = (() => {
+                                                      try {
+                                                        return JSON.parse(step.attachments?.[0]?.fileName || "{}")
+                                                      } catch { return {} }
+                                                    })()
+                                                    currentData.content = e.target.value
+                                                    const visitData: ImageData = {
+                                                      id: "visit-record",
+                                                      originalUrl: "",
+                                                      thumbnailUrl: "",
+                                                      fileName: JSON.stringify(currentData),
+                                                      fileSize: 0,
+                                                      mimeType: "application/json",
+                                                      order: 0
+                                                    }
+                                                    handleUpdateStepAttachments(selectedProject, originalIndex, [visitData])
+                                                  }}
+                                                />
+                                              ) : (
+                                                <div className="text-sm whitespace-pre-wrap">
+                                                  {(() => {
+                                                    try {
+                                                      const visit = JSON.parse(step.attachments?.[0]?.fileName || "{}")
+                                                      return visit.content || "-"
+                                                    } catch { return "-" }
+                                                  })()}
+                                                </div>
+                                              )}
+                                            </div>
+                                          </>
+                                        )}
                                       </div>
                                     )}
 
