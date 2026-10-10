@@ -60,7 +60,6 @@ import {
   FolderKanban,
   FileText,
   Building2,
-  ChevronLeft,
   ChevronRight,
   Search,
   Send,
@@ -1276,18 +1275,6 @@ export function PlansPage() {
     if (updated) setSelectedProject(updated)
   }
 
-  // Update step attachments with ImageData directly
-  const handleUpdateStepAttachments = async (project: Project, stepIndex: number, attachments: ImageData[]) => {
-    const newWorkflow = [...project.workflow]
-    const step = newWorkflow[stepIndex]
-    step.attachments = attachments
-
-    await projectService.updateProject(project.id, { workflow: newWorkflow })
-    await loadData()
-
-    const updated = await projectService.getProjectById(project.id)
-    if (updated) setSelectedProject(updated)
-  }
 
   // Note: updateStepAssignees and getUserName removed as unused
 
@@ -2376,7 +2363,6 @@ export function PlansPage() {
                       </div>
                       <div className="p-4 space-y-2 max-h-[60vh] overflow-y-auto">
                         {trackingEventPopup.projects.map(project => {
-                          const org = organizations.find(o => o.id === project.organizationId)
                           const plan = plans.find(pl => pl.id === project.planId)
                           const checkKey = trackingEventPopup.type === 'oneTime'
                             ? `oneTime-${project.id}`
@@ -4650,7 +4636,7 @@ export function PlansPage() {
                                       const data = JSON.parse(step.note)
                                       // 從評議委員會步驟讀取補助類型
                                       const committeeStep = selectedProject?.workflow.find(s => s.name.includes("評議委員會"))
-                                      let subsidyData: { subsidyType?: string } = {}
+                                      let subsidyData: { subsidyType?: string; periodicPaymentDay?: string } = {}
                                       try {
                                         if (committeeStep?.note) {
                                           subsidyData = JSON.parse(committeeStep.note)
@@ -5241,7 +5227,6 @@ export function PlansPage() {
                                             subsidyData = JSON.parse(committeeStep.note)
                                           }
                                         } catch {}
-                                        const isOneTime = subsidyData.subsidyType === 'oneTime'
                                         const isPeriodic = subsidyData.subsidyType === 'periodic'
 
                                         // 期間性：顯示每月匯款日設定
