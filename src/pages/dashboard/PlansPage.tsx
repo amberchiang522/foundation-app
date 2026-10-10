@@ -159,6 +159,10 @@ export function PlansPage() {
   const [viewingPlanOrgs, setViewingPlanOrgs] = useState<OrganizationWithDetails[]>([])
   const [isLoadingPlanView, setIsLoadingPlanView] = useState(false)
 
+  // Plan delete confirmation state
+  const [isDeletePlanConfirmOpen, setIsDeletePlanConfirmOpen] = useState(false)
+  const [isDeletingPlan, setIsDeletingPlan] = useState(false)
+
   // Plan form state
   const [planFormData, setPlanFormData] = useState({
     name: "",
@@ -610,6 +614,34 @@ export function PlansPage() {
       alert("儲存失敗，請稍後再試")
     } finally {
       setIsSavingPlan(false)
+    }
+  }
+
+  const handleDeletePlan = async () => {
+    if (!editingPlan) return
+
+    setIsDeletingPlan(true)
+    try {
+      const success = await projectService.deletePlan(editingPlan.id)
+      if (success) {
+        await loadData()
+        setIsDeletePlanConfirmOpen(false)
+        setIsPlanFormOpen(false)
+        setEditingPlan(null)
+        // 如果刪除的是當前選中的計畫，清除選擇
+        if (selectedPlan?.id === editingPlan.id) {
+          setSelectedPlan(null)
+          setSelectedProject(null)
+          setMobileView("plans")
+        }
+      } else {
+        alert("刪除失敗，可能此計畫下還有個案")
+      }
+    } catch (error) {
+      console.error("Failed to delete plan:", error)
+      alert("刪除失敗，請確認此計畫下沒有個案")
+    } finally {
+      setIsDeletingPlan(false)
     }
   }
 
@@ -5792,12 +5824,53 @@ export function PlansPage() {
             )}
           </div>
 
+          <DialogFooter className="flex justify-between sm:justify-between">
+            {editingPlan ? (
+              <Button
+                variant="destructive"
+                onClick={() => setIsDeletePlanConfirmOpen(true)}
+              >
+                <Trash2 className="h-4 w-4 mr-1" />
+                刪除計畫
+              </Button>
+            ) : (
+              <div />
+            )}
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={() => setIsPlanFormOpen(false)}>
+                取消
+              </Button>
+              <Button onClick={handleSavePlan} disabled={isSavingPlan}>
+                {isSavingPlan ? "儲存中..." : "儲存"}
+              </Button>
+            </div>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Plan Confirmation Dialog */}
+      <Dialog open={isDeletePlanConfirmOpen} onOpenChange={setIsDeletePlanConfirmOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>確認刪除計畫</DialogTitle>
+            <DialogDescription>
+              確定要刪除「{editingPlan?.name}」嗎？此操作無法復原。
+              <br />
+              <span className="text-destructive font-medium">
+                注意：如果此計畫下還有個案，將無法刪除。
+              </span>
+            </DialogDescription>
+          </DialogHeader>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setIsPlanFormOpen(false)}>
+            <Button variant="outline" onClick={() => setIsDeletePlanConfirmOpen(false)}>
               取消
             </Button>
-            <Button onClick={handleSavePlan} disabled={isSavingPlan}>
-              {isSavingPlan ? "儲存中..." : "儲存"}
+            <Button
+              variant="destructive"
+              onClick={handleDeletePlan}
+              disabled={isDeletingPlan}
+            >
+              {isDeletingPlan ? "刪除中..." : "確認刪除"}
             </Button>
           </DialogFooter>
         </DialogContent>

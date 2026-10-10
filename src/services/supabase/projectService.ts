@@ -167,6 +167,19 @@ export const supabaseProjectService = {
     return this.updatePlan(id, { status: 'archived' })
   },
 
+  async deletePlan(id: string): Promise<boolean> {
+    const { error } = await supabase
+      .from('plans')
+      .delete()
+      .eq('id', id)
+
+    if (error) {
+      console.error('Error deleting plan:', error)
+      return false
+    }
+    return true
+  },
+
   // Projects
   async getProjects(): Promise<Project[]> {
     const { data, error } = await supabase
