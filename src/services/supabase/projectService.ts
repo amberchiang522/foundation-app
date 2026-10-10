@@ -47,6 +47,8 @@ function transformProject(row: Record<string, unknown>): Project {
     trackingIntervalDays: row.tracking_interval_days as number | undefined,
     nextTrackingDate: row.next_tracking_date as string | undefined,
     trackingNotificationDismissed: row.tracking_notification_dismissed as boolean | undefined,
+    // Payment tracking
+    paymentRecords: row.payment_records as Project['paymentRecords'],
   }
 }
 
@@ -234,6 +236,7 @@ export const supabaseProjectService = {
         name: projectData.name,
         description: projectData.description,
         project_type: projectData.projectType,
+        project_number: projectData.projectNumber || null,
         budget_amount: projectData.budgetAmount,
         result_images: projectData.resultImages,
         receipt_images: projectData.receiptImages,
@@ -270,6 +273,8 @@ export const supabaseProjectService = {
     if (projectData.trackingIntervalDays !== undefined) updateData.tracking_interval_days = projectData.trackingIntervalDays
     if (projectData.nextTrackingDate !== undefined) updateData.next_tracking_date = projectData.nextTrackingDate
     if (projectData.trackingNotificationDismissed !== undefined) updateData.tracking_notification_dismissed = projectData.trackingNotificationDismissed
+    // Payment tracking
+    if (projectData.paymentRecords !== undefined) updateData.payment_records = projectData.paymentRecords
 
     const { data: updated, error } = await supabase
       .from('projects')

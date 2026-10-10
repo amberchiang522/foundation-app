@@ -258,6 +258,13 @@ export interface Project {
   trackingIntervalDays?: number  // e.g., 30, 60, 90
   nextTrackingDate?: string      // ISO date string
   trackingNotificationDismissed?: boolean
+
+  // Payment tracking records
+  paymentRecords?: {
+    oneTimePaid?: boolean
+    oneTimePaidAt?: string
+    periodicPayments?: { year: number; month: number; paid: boolean; paidAt?: string }[]
+  }
 }
 
 // Project with related data

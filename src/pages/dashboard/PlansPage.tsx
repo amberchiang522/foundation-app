@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import { HorizontalScrollSlider } from "@/components/ui/horizontal-scroll-slider"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Separator } from "@/components/ui/separator"
 import {
@@ -59,6 +60,7 @@ import {
   FolderKanban,
   FileText,
   Building2,
+  ChevronLeft,
   ChevronRight,
   Search,
   Send,
@@ -70,6 +72,41 @@ import {
 import { cn } from "@/lib/utils"
 
 type MobileView = "plans" | "projects" | "detail"
+
+// 電腦版拖動滾動處理
+const enableDragScroll = (el: HTMLDivElement | null) => {
+  if (!el) return
+  let isDown = false
+  let startX: number
+  let scrollLeft: number
+
+  el.addEventListener('mousedown', (e) => {
+    // 只在非觸控設備上啟用
+    if (window.innerWidth < 768) return
+    isDown = true
+    el.classList.add('dragging')
+    startX = e.pageX - el.offsetLeft
+    scrollLeft = el.scrollLeft
+  })
+
+  el.addEventListener('mouseleave', () => {
+    isDown = false
+    el.classList.remove('dragging')
+  })
+
+  el.addEventListener('mouseup', () => {
+    isDown = false
+    el.classList.remove('dragging')
+  })
+
+  el.addEventListener('mousemove', (e) => {
+    if (!isDown) return
+    e.preventDefault()
+    const x = e.pageX - el.offsetLeft
+    const walk = (x - startX) * 1.5
+    el.scrollLeft = scrollLeft - walk
+  })
+}
 
 export function PlansPage() {
   const { user } = useAuth()
@@ -113,8 +150,30 @@ export function PlansPage() {
   // Flow view project modal state
   const [flowProjectModal, setFlowProjectModal] = useState<Project | null>(null)
 
-  // Payment tracking checkboxes state
+  // Payment tracking checkboxes state (initialized from project.paymentRecords)
   const [checkedPayments, setCheckedPayments] = useState<Set<string>>(new Set())
+
+  // Initialize checkedPayments from projects' paymentRecords
+  useEffect(() => {
+    const newChecked = new Set<string>()
+    projects.forEach(project => {
+      if (project.paymentRecords) {
+        // One-time payment
+        if (project.paymentRecords.oneTimePaid) {
+          newChecked.add(`oneTime-${project.id}`)
+        }
+        // Periodic payments
+        if (project.paymentRecords.periodicPayments) {
+          project.paymentRecords.periodicPayments.forEach(pp => {
+            if (pp.paid) {
+              newChecked.add(`periodic-${project.id}-${pp.year}-${pp.month}`)
+            }
+          })
+        }
+      }
+    })
+    setCheckedPayments(newChecked)
+  }, [projects])
 
   // Ref for project detail scroll container
   const projectDetailScrollRef = useRef<HTMLDivElement>(null)
@@ -190,9 +249,10 @@ export function PlansPage() {
     projectType: "",
     budgetAmount: 0,
     organizationId: "",
-    sourceType: "個人" as "個人" | "機構" | "董事",
+    sourceType: "個人" as "個人" | "機構" | "董事" | "轉介",
     projectNumber: "",  // 個案編號
     planId: "",  // 計畫ID（流程模式新增時使用）
+    referrer: "",  // 介紹人（轉介時使用）
   })
   const [firstStepAttachments, setFirstStepAttachments] = useState<ImageUploadResult[]>([])
 
@@ -229,6 +289,11 @@ export function PlansPage() {
   const [isProcessing, setIsProcessing] = useState(false)
   const [reviewResult, setReviewResult] = useState<Record<string, 'approved' | 'rejected' | ''>>({})
 
+  // 評議委員會日期對話框
+  const [isCommitteeDateDialogOpen, setIsCommitteeDateDialogOpen] = useState(false)
+  const [committeeDateInput, setCommitteeDateInput] = useState("")
+  const [committeeDateProjectId, setCommitteeDateProjectId] = useState<string | null>(null)
+
   // 評議委員會表單
   const [committeeForm, setCommitteeForm] = useState<{
     meetingDate: string
@@ -236,22 +301,26 @@ export function PlansPage() {
     subsidyType: 'oneTime' | 'periodic' | ''  // 一次性 or 期間性
     oneTimeMonth: string  // 一次性補助月份
     oneTimeAmount: string  // 一次性補助金額
+    oneTimePaymentDate: string  // 一次性匯款日期
     periodStart: string  // 補助期間開始
     periodEnd: string  // 補助期間結束
     frequency: 'monthly' | 'periodic' | ''  // 每月 or 每幾月
     periodicMonths: string  // 每__月為一期
     periodicAmount: string  // 每期金額
+    periodicPaymentDay: string  // 每月匯款日（幾號）
   }>({
     meetingDate: '',
     purposes: [],
     subsidyType: '',
     oneTimeMonth: '',
     oneTimeAmount: '',
+    oneTimePaymentDate: '',
     periodStart: '',
     periodEnd: '',
     frequency: '',
     periodicMonths: '',
     periodicAmount: '',
+    periodicPaymentDay: '',
   })
   const [committeeAttachments, setCommitteeAttachments] = useState<ImageUploadResult[]>([])
 
@@ -285,6 +354,9 @@ export function PlansPage() {
   const [editingExecutionId, setEditingExecutionId] = useState<string | null>(null)
   // Edit mode for completed steps (track which step is being edited)
   const [editingStepId, setEditingStepId] = useState<string | null>(null)
+  // Edit mode for closing payment day
+  const [editingClosingPaymentDay, setEditingClosingPaymentDay] = useState<string | null>(null)
+  const [closingPaymentDayValue, setClosingPaymentDayValue] = useState("")
   const [_editExecContent, setEditExecContent] = useState("")
   const [editExecAttachments, setEditExecAttachments] = useState<ImageUploadResult[]>([])
 
@@ -332,11 +404,13 @@ export function PlansPage() {
             subsidyType: noteData.subsidyType || '',
             oneTimeMonth: noteData.oneTimeMonth || '',
             oneTimeAmount: noteData.oneTimeAmount || '',
+            oneTimePaymentDate: noteData.oneTimePaymentDate || '',
             periodStart: noteData.periodStart || '',
             periodEnd: noteData.periodEnd || '',
             frequency: noteData.frequency || '',
             periodicMonths: noteData.periodicMonths || '',
             periodicAmount: noteData.periodicAmount || '',
+            periodicPaymentDay: noteData.periodicPaymentDay || '',
           })
         } catch {
           // 解析失敗，重置為空表單
@@ -346,11 +420,13 @@ export function PlansPage() {
             subsidyType: '',
             oneTimeMonth: '',
             oneTimeAmount: '',
+            oneTimePaymentDate: '',
             periodStart: '',
             periodEnd: '',
             frequency: '',
             periodicMonths: '',
             periodicAmount: '',
+            periodicPaymentDay: '',
           })
         }
       } else {
@@ -361,11 +437,13 @@ export function PlansPage() {
           subsidyType: '',
           oneTimeMonth: '',
           oneTimeAmount: '',
+          oneTimePaymentDate: '',
           periodStart: '',
           periodEnd: '',
           frequency: '',
           periodicMonths: '',
           periodicAmount: '',
+          periodicPaymentDay: '',
         })
       }
     }
@@ -773,9 +851,13 @@ export function PlansPage() {
   const openProjectForm = (project?: Project) => {
     setEditingProject(project || null)
     // Determine source type from description field
-    let sourceType: "個人" | "機構" | "董事" = "個人"
+    let sourceType: "個人" | "機構" | "董事" | "轉介" = "個人"
+    let referrer = ""
     if (project?.description === "機構" || project?.description === "董事") {
       sourceType = project.description
+    } else if (project?.description?.startsWith("轉介:")) {
+      sourceType = "轉介"
+      referrer = project.description.replace("轉介:", "").trim()
     } else if (project?.organizationId) {
       sourceType = "機構"
     }
@@ -820,6 +902,7 @@ export function PlansPage() {
       sourceType,
       projectNumber: project?.projectNumber || defaultProjectNumber,
       planId: project?.planId || "",  // Reset planId for new project
+      referrer,
     })
     setFirstStepAttachments([])  // Clear attachments when opening form
     setIsProjectFormOpen(true)
@@ -852,12 +935,17 @@ export function PlansPage() {
     // Only require organization when source type is "機構"
     const organizationId = projectFormData.sourceType === "機構" ? projectFormData.organizationId : undefined
 
+    // 轉介時，description 存為 "轉介:介紹人名稱"
+    const description = projectFormData.sourceType === "轉介"
+      ? `轉介:${projectFormData.referrer}`
+      : projectFormData.sourceType
+
     setIsSavingProject(true)
     try {
       if (editingProject) {
         await projectService.updateProject(editingProject.id, {
           name: projectFormData.name,
-          description: projectFormData.sourceType,  // 來源存到 description
+          description,  // 來源存到 description
           projectType: projectFormData.projectType,
           projectNumber: projectFormData.projectNumber || undefined,
           budgetAmount: 0,
@@ -916,7 +1004,7 @@ export function PlansPage() {
           planId: targetPlan.id,
           organizationId,
           name: projectFormData.name,
-          description: projectFormData.sourceType,  // 來源存到 description
+          description,  // 來源存到 description
           projectType: projectFormData.projectType || "一般",
           projectNumber: projectFormData.projectNumber || undefined,
           budgetAmount: 0,
@@ -1237,6 +1325,63 @@ export function PlansPage() {
     return organizations.find((o) => o.id === orgId)?.name || orgId
   }
 
+  // 取得專案的評議委員會日期
+  const getCommitteeDate = (project: Project): string => {
+    const committeeStep = project.workflow.find(s => s.name.includes("評議委員會"))
+    return committeeStep?.subTasks?.[0]?.note || ""
+  }
+
+  // 取得同月份有評議委員會日期的專案
+  const getProjectsWithSameMonthDate = (targetMonth: string): { project: Project; date: string }[] => {
+    if (!targetMonth || targetMonth.length < 7) return []
+    const monthPrefix = targetMonth.substring(0, 7) // YYYY-MM
+    return projects
+      .filter(p => p.planId === selectedPlan?.id && p.id !== selectedProject?.id)
+      .map(p => ({ project: p, date: getCommitteeDate(p) }))
+      .filter(item => item.date.startsWith(monthPrefix))
+  }
+
+  // 取得所有有評議委員會日期的專案（用於顯示建議）
+  const getProjectsWithCommitteeDate = (): { project: Project; date: string }[] => {
+    return projects
+      .filter(p => p.planId === selectedPlan?.id)
+      .map(p => ({ project: p, date: getCommitteeDate(p) }))
+      .filter(item => item.date)
+      .sort((a, b) => b.date.localeCompare(a.date)) // 最新的在前
+  }
+
+  // 更新評議委員會日期（可批量）
+  const updateCommitteeDate = async (projectIds: string[], newDate: string) => {
+    for (const projectId of projectIds) {
+      const project = projects.find(p => p.id === projectId)
+      if (!project) continue
+
+      const committeeStepIndex = project.workflow.findIndex(s => s.name.includes("評議委員會"))
+      if (committeeStepIndex === -1) continue
+
+      const newWorkflow = [...project.workflow]
+      const committeeStep = newWorkflow[committeeStepIndex]
+      if (committeeStep.subTasks && committeeStep.subTasks.length > 0) {
+        committeeStep.subTasks[0].note = newDate
+        await projectService.updateProject(projectId, { workflow: newWorkflow })
+      }
+    }
+
+    // 重新載入資料
+    await loadData()
+    if (selectedProject) {
+      const updated = await projectService.getProjectById(selectedProject.id)
+      if (updated) setSelectedProject(updated)
+    }
+  }
+
+  // 開啟評議委員會日期對話框
+  const openCommitteeDateDialog = (project: Project) => {
+    setCommitteeDateProjectId(project.id)
+    setCommitteeDateInput(getCommitteeDate(project))
+    setIsCommitteeDateDialogOpen(true)
+  }
+
   // Derived data
   const activePlans = plans.filter((p) => p.status === "active")
   const filteredPlans = activePlans.filter((p) =>
@@ -1290,7 +1435,8 @@ export function PlansPage() {
     if (!note) return null
     try {
       const data = JSON.parse(note)
-      if (data.evaluationScores) return data
+      // 有評估分數或訪視紀錄都算有效資料
+      if (data.evaluationScores || data.visitRecord) return data
       return null
     } catch {
       return null
@@ -1302,6 +1448,94 @@ export function PlansPage() {
     return Object.values(scores).reduce((sum, item) => sum + (item.score || 0), 0)
   }
 
+  // 更新付款記錄到資料庫
+  const updatePaymentRecord = async (
+    projectId: string,
+    type: 'oneTime' | 'periodic',
+    paid: boolean,
+    year?: number,
+    month?: number
+  ) => {
+    const project = projects.find(p => p.id === projectId)
+    if (!project) return
+
+    const currentRecords = project.paymentRecords || {}
+    let newRecords: typeof currentRecords
+
+    if (type === 'oneTime') {
+      newRecords = {
+        ...currentRecords,
+        oneTimePaid: paid,
+        oneTimePaidAt: paid ? new Date().toISOString() : undefined,
+      }
+    } else {
+      const periodicPayments = [...(currentRecords.periodicPayments || [])]
+      const existingIndex = periodicPayments.findIndex(
+        pp => pp.year === year && pp.month === month
+      )
+      if (existingIndex >= 0) {
+        periodicPayments[existingIndex] = {
+          year: year!,
+          month: month!,
+          paid,
+          paidAt: paid ? new Date().toISOString() : undefined,
+        }
+      } else if (paid) {
+        periodicPayments.push({
+          year: year!,
+          month: month!,
+          paid,
+          paidAt: new Date().toISOString(),
+        })
+      }
+      newRecords = {
+        ...currentRecords,
+        periodicPayments,
+      }
+    }
+
+    // 檢查是否所有付款都完成 - 如果是，標記為已完成
+    let shouldComplete = false
+    const committeeStep = project.workflow.find(s => s.name.includes("評議委員會"))
+    const closingStep = project.workflow.find(s => s.name.includes("結案"))
+
+    if (committeeStep?.note && closingStep?.status === 'approved') {
+      try {
+        const subsidyData = JSON.parse(committeeStep.note)
+        if (subsidyData.subsidyType === 'oneTime') {
+          // 一次性：付款完成就完成
+          shouldComplete = newRecords.oneTimePaid === true
+        } else if (subsidyData.subsidyType === 'periodic') {
+          // 期間性：所有月份都付款才完成
+          const periodStart = new Date(subsidyData.periodStart)
+          const periodEnd = new Date(subsidyData.periodEnd)
+          const totalMonths = (periodEnd.getFullYear() - periodStart.getFullYear()) * 12 +
+            (periodEnd.getMonth() - periodStart.getMonth()) + 1
+          const paidCount = (newRecords.periodicPayments || []).filter(pp => pp.paid).length
+          shouldComplete = paidCount >= totalMonths
+        }
+      } catch {}
+    }
+
+    try {
+      await projectService.updateProject(projectId, {
+        paymentRecords: newRecords,
+        status: shouldComplete ? 'completed' : project.status,
+      })
+
+      // 更新本地狀態
+      setProjects(prev =>
+        prev.map(p =>
+          p.id === projectId
+            ? { ...p, paymentRecords: newRecords, status: shouldComplete ? 'completed' : p.status }
+            : p
+        )
+      )
+    } catch (error) {
+      console.error('Failed to update payment record:', error)
+    }
+  }
+
   // Plans Cards Component (Top Section) - Only shows when no plan is selected
   const PlansCards = () => {
     // 取得所有進行中的個案，按步驟分組
@@ -1310,10 +1544,34 @@ export function PlansPage() {
 
     // 按當前步驟分組個案
     const getProjectsByStep = (stepName: string) => {
-      return activeProjects.filter(p => {
+      const filtered = activeProjects.filter(p => {
         const currentStepObj = p.workflow[p.currentStep]
         return currentStepObj?.name?.includes(stepName.replace('及簽核', '').replace('與追蹤', ''))
       })
+
+      // 對文件寄發及簽核步驟，按子任務進度排序
+      if (stepName.includes('文件寄發')) {
+        return filtered.sort((a, b) => {
+          const aStep = a.workflow.find(s => s.name.includes('文件寄發'))
+          const bStep = b.workflow.find(s => s.name.includes('文件寄發'))
+          const aCompleted = aStep?.subTasks?.filter(st => st.completed)?.length || 0
+          const bCompleted = bStep?.subTasks?.filter(st => st.completed)?.length || 0
+          return aCompleted - bCompleted // 較少完成的排前面
+        })
+      }
+
+      return filtered
+    }
+
+    // 取得文件寄發步驟的當前子任務進度
+    const getStep4Progress = (project: Project) => {
+      const step = project.workflow.find(s => s.name.includes('文件寄發'))
+      if (!step?.subTasks || step.subTasks.length === 0) return null
+      const completed = step.subTasks.filter(st => st.completed).length
+      const total = step.subTasks.length
+      // 找到下一個未完成的子任務
+      const nextSubTask = step.subTasks.find(st => !st.completed)
+      return { completed, total, nextSubTask }
     }
 
     return (
@@ -1483,6 +1741,7 @@ export function PlansPage() {
                       stepProjects.map((project) => {
                         const plan = plans.find(p => p.id === project.planId)
                         const org = organizations.find(o => o.id === project.organizationId)
+                        const step4Progress = stepName.includes('文件寄發') ? getStep4Progress(project) : null
                         return (
                           <div
                             key={project.id}
@@ -1504,7 +1763,20 @@ export function PlansPage() {
                                 <span className="truncate">{org.name}</span>
                               </div>
                             )}
-                            {plan && (
+                            {/* 文件寄發步驟顯示子任務進度 */}
+                            {step4Progress && (
+                              <div className="mt-1.5 flex items-center gap-1.5">
+                                <Badge variant="secondary" className="text-[10px] bg-primary text-primary-foreground">
+                                  {step4Progress.completed + 1}/{step4Progress.total}
+                                </Badge>
+                                {step4Progress.nextSubTask && (
+                                  <span className="text-[10px] text-muted-foreground truncate">
+                                    {step4Progress.nextSubTask.name}
+                                  </span>
+                                )}
+                              </div>
+                            )}
+                            {plan && !step4Progress && (
                               <Badge variant="outline" className="text-[10px] md:text-xs mt-1 md:mt-2 hidden sm:inline-flex">
                                 {plan.name}
                               </Badge>
@@ -1621,47 +1893,46 @@ export function PlansPage() {
               }
 
               // 從評議委員會步驟取得補助類型和金額
-              let subsidyData: { subsidyType?: string; oneTimeAmount?: string; periodicAmount?: string; periodStart?: string; periodEnd?: string; frequency?: string; periodicMonths?: string } = {}
+              let subsidyData: { subsidyType?: string; oneTimeAmount?: string; oneTimePaymentDate?: string; periodicAmount?: string; periodStart?: string; periodEnd?: string; frequency?: string; periodicMonths?: string; periodicPaymentDay?: string } = {}
               if (committeeStep?.note) {
                 try {
                   subsidyData = JSON.parse(committeeStep.note)
                 } catch {}
               }
 
-              // 從結案步驟取得實際匯款日期
+              // 從結案步驟取得資訊
               const closingStep = p.workflow.find(s => s.name.includes("結案"))
-              let closingData: { paymentDate?: string; trackingDates?: string[] } = {}
-              if (closingStep?.note) {
-                try {
-                  closingData = JSON.parse(closingStep.note)
-                } catch {}
-              }
 
-              // 一次性補助：檢查匯款日期是否在當月
-              if (subsidyData.subsidyType === 'oneTime') {
-                const paymentDate = closingData.paymentDate || ''
+              // 只有結案步驟已完成的個案才顯示匯款資訊
+              const isClosingCompleted = closingStep?.status === 'approved'
+
+              // 一次性補助：檢查匯款日期是否在當月（需結案完成）
+              if (subsidyData.subsidyType === 'oneTime' && isClosingCompleted) {
+                // 使用評議委員會中設定的匯款日期
+                const paymentDate = subsidyData.oneTimePaymentDate || ''
                 if (paymentDate && paymentDate.startsWith(currentMonthStr)) {
                   const day = parseInt(paymentDate.split('-')[2])
                   const amount = Number(subsidyData.oneTimeAmount) || 0
                   oneTimePayments.push({ project: p, amount, org: org?.name || '', date: day })
                   monthEvents.push({ date: day, type: 'oneTime', project: p })
                 }
-              } else if (subsidyData.subsidyType === 'periodic') {
-                // 期間性補助：檢查當月是否在補助期間內
+              } else if (subsidyData.subsidyType === 'periodic' && isClosingCompleted) {
+                // 期間性補助：檢查當月是否在補助期間內（需結案完成）
                 const periodStart = new Date(subsidyData.periodStart || '')
                 const periodEnd = new Date(subsidyData.periodEnd || '')
                 const currentDate = new Date(trackingMonth.year, trackingMonth.month, 15)
 
                 if (currentDate >= periodStart && currentDate <= periodEnd) {
                   const amount = Number(subsidyData.periodicAmount) || 0
+                  const paymentDay = parseInt(subsidyData.periodicPaymentDay || '1') || 1
                   periodicPayments.push({
                     project: p,
                     amount,
                     org: org?.name || '',
                     frequency: subsidyData.frequency === 'monthly' ? '每月' : `每${subsidyData.periodicMonths}月`
                   })
-                  // 期間性匯款顯示在月初
-                  monthEvents.push({ date: 1, type: 'periodic', project: p })
+                  // 期間性匯款顯示在設定的匯款日
+                  monthEvents.push({ date: paymentDay, type: 'periodic', project: p })
                 }
               }
             })
@@ -1745,13 +2016,16 @@ export function PlansPage() {
                               className="h-4 w-4 rounded border-gray-300 cursor-pointer"
                               checked={oneTimePayments.every(({ project }) => checkedPayments.has(`oneTime-${project.id}`))}
                               onChange={(e) => {
+                                const isChecked = e.target.checked
                                 const newChecked = new Set(checkedPayments)
                                 oneTimePayments.forEach(({ project }) => {
-                                  if (e.target.checked) {
+                                  if (isChecked) {
                                     newChecked.add(`oneTime-${project.id}`)
                                   } else {
                                     newChecked.delete(`oneTime-${project.id}`)
                                   }
+                                  // 儲存到資料庫
+                                  updatePaymentRecord(project.id, 'oneTime', isChecked)
                                 })
                                 setCheckedPayments(newChecked)
                               }}
@@ -1784,13 +2058,16 @@ export function PlansPage() {
                                 className="h-4 w-4 mt-0.5 rounded border-gray-300 cursor-pointer shrink-0"
                                 checked={checkedPayments.has(`oneTime-${project.id}`)}
                                 onChange={(e) => {
+                                  const isChecked = e.target.checked
                                   const newChecked = new Set(checkedPayments)
-                                  if (e.target.checked) {
+                                  if (isChecked) {
                                     newChecked.add(`oneTime-${project.id}`)
                                   } else {
                                     newChecked.delete(`oneTime-${project.id}`)
                                   }
                                   setCheckedPayments(newChecked)
+                                  // 儲存到資料庫
+                                  updatePaymentRecord(project.id, 'oneTime', isChecked)
                                 }}
                               />
                               <div
@@ -1833,15 +2110,19 @@ export function PlansPage() {
                             <input
                               type="checkbox"
                               className="h-4 w-4 rounded border-gray-300 cursor-pointer"
-                              checked={periodicPayments.every(({ project }) => checkedPayments.has(`periodic-${project.id}`))}
+                              checked={periodicPayments.every(({ project }) => checkedPayments.has(`periodic-${project.id}-${trackingMonth.year}-${trackingMonth.month}`))}
                               onChange={(e) => {
+                                const isChecked = e.target.checked
                                 const newChecked = new Set(checkedPayments)
                                 periodicPayments.forEach(({ project }) => {
-                                  if (e.target.checked) {
-                                    newChecked.add(`periodic-${project.id}`)
+                                  const monthKey = `periodic-${project.id}-${trackingMonth.year}-${trackingMonth.month}`
+                                  if (isChecked) {
+                                    newChecked.add(monthKey)
                                   } else {
-                                    newChecked.delete(`periodic-${project.id}`)
+                                    newChecked.delete(monthKey)
                                   }
+                                  // 儲存到資料庫
+                                  updatePaymentRecord(project.id, 'periodic', isChecked, trackingMonth.year, trackingMonth.month)
                                 })
                                 setCheckedPayments(newChecked)
                               }}
@@ -1857,12 +2138,14 @@ export function PlansPage() {
                         <p className="text-xs text-muted-foreground">本月無期間性匯款</p>
                       ) : (
                         <div className="space-y-2">
-                          {periodicPayments.map(({ project, amount, org, frequency }) => (
+                          {periodicPayments.map(({ project, amount, org, frequency }) => {
+                            const monthKey = `periodic-${project.id}-${trackingMonth.year}-${trackingMonth.month}`
+                            return (
                             <div
                               key={project.id}
                               className={cn(
                                 "p-2 rounded border flex items-start gap-2",
-                                checkedPayments.has(`periodic-${project.id}`)
+                                checkedPayments.has(monthKey)
                                   ? "bg-green-50 dark:bg-green-950/20 border-green-300"
                                   : project.status === 'completed'
                                   ? "bg-gray-50 dark:bg-gray-950/20 opacity-70"
@@ -1872,15 +2155,18 @@ export function PlansPage() {
                               <input
                                 type="checkbox"
                                 className="h-4 w-4 mt-0.5 rounded border-gray-300 cursor-pointer shrink-0"
-                                checked={checkedPayments.has(`periodic-${project.id}`)}
+                                checked={checkedPayments.has(monthKey)}
                                 onChange={(e) => {
+                                  const isChecked = e.target.checked
                                   const newChecked = new Set(checkedPayments)
-                                  if (e.target.checked) {
-                                    newChecked.add(`periodic-${project.id}`)
+                                  if (isChecked) {
+                                    newChecked.add(monthKey)
                                   } else {
-                                    newChecked.delete(`periodic-${project.id}`)
+                                    newChecked.delete(monthKey)
                                   }
                                   setCheckedPayments(newChecked)
+                                  // 儲存到資料庫
+                                  updatePaymentRecord(project.id, 'periodic', isChecked, trackingMonth.year, trackingMonth.month)
                                 }}
                               />
                               <div
@@ -1907,7 +2193,7 @@ export function PlansPage() {
                                 <div className="text-xs text-muted-foreground">{org} · {frequency}</div>
                               </div>
                             </div>
-                          ))}
+                          )})}
                         </div>
                       )}
                     </div>
@@ -2088,55 +2374,106 @@ export function PlansPage() {
                           <Badge variant="secondary">{trackingEventPopup.projects.length} 案</Badge>
                         </div>
                       </div>
-                      <div className="p-4 space-y-1.5 max-h-[60vh] overflow-y-auto">
+                      <div className="p-4 space-y-2 max-h-[60vh] overflow-y-auto">
                         {trackingEventPopup.projects.map(project => {
                           const org = organizations.find(o => o.id === project.organizationId)
                           const plan = plans.find(pl => pl.id === project.planId)
                           const checkKey = trackingEventPopup.type === 'oneTime'
                             ? `oneTime-${project.id}`
                             : trackingEventPopup.type === 'periodic'
-                            ? `periodic-${project.id}`
+                            ? `periodic-${project.id}-${trackingMonth.year}-${trackingMonth.month}`
                             : `committee-${project.id}`
+
+                          // 計算期間性補助的次數資訊
+                          let periodicInfo: { amount: number; totalPayments: number; currentPayment: number } | null = null
+                          if (trackingEventPopup.type === 'periodic') {
+                            const committeeStep = project.workflow.find(s => s.name.includes("評議委員會"))
+                            if (committeeStep?.note) {
+                              try {
+                                const data = JSON.parse(committeeStep.note)
+                                const periodStart = new Date(data.periodStart || '')
+                                const periodEnd = new Date(data.periodEnd || '')
+                                const amount = Number(data.periodicAmount) || 0
+                                const periodicMonths = data.frequency === 'monthly' ? 1 : (parseInt(data.periodicMonths) || 1)
+
+                                // 計算總共幾次
+                                const startYear = periodStart.getFullYear()
+                                const startMonth = periodStart.getMonth()
+                                const endYear = periodEnd.getFullYear()
+                                const endMonth = periodEnd.getMonth()
+                                const totalMonths = (endYear - startYear) * 12 + (endMonth - startMonth) + 1
+                                const totalPayments = Math.ceil(totalMonths / periodicMonths)
+
+                                // 計算這是第幾次
+                                const currentYear = trackingMonth.year
+                                const currentMonth = trackingMonth.month
+                                const monthsFromStart = (currentYear - startYear) * 12 + (currentMonth - startMonth)
+                                const currentPayment = Math.floor(monthsFromStart / periodicMonths) + 1
+
+                                periodicInfo = { amount, totalPayments, currentPayment }
+                              } catch {}
+                            }
+                          }
+
                           return (
                             <div
                               key={project.id}
                               className={cn(
-                                "p-2 border rounded-lg flex items-center gap-2 transition-colors",
+                                "p-3 border rounded-lg transition-colors",
                                 checkedPayments.has(checkKey)
                                   ? "bg-green-50 dark:bg-green-950/20 border-green-300"
                                   : "hover:bg-muted/50"
                               )}
                             >
-                              {trackingEventPopup.type !== 'committee' && (
-                                <input
-                                  type="checkbox"
-                                  className="h-4 w-4 rounded border-gray-300 cursor-pointer shrink-0"
-                                  checked={checkedPayments.has(checkKey)}
-                                  onChange={(e) => {
-                                    const newChecked = new Set(checkedPayments)
-                                    if (e.target.checked) {
-                                      newChecked.add(checkKey)
-                                    } else {
-                                      newChecked.delete(checkKey)
+                              <div className="flex items-start gap-2">
+                                {trackingEventPopup.type !== 'committee' && (
+                                  <input
+                                    type="checkbox"
+                                    className="h-4 w-4 mt-0.5 rounded border-gray-300 cursor-pointer shrink-0"
+                                    checked={checkedPayments.has(checkKey)}
+                                    onChange={(e) => {
+                                      const isChecked = e.target.checked
+                                      const newChecked = new Set(checkedPayments)
+                                      if (isChecked) {
+                                        newChecked.add(checkKey)
+                                      } else {
+                                        newChecked.delete(checkKey)
+                                      }
+                                      setCheckedPayments(newChecked)
+                                      // 儲存到資料庫
+                                      if (trackingEventPopup.type === 'oneTime') {
+                                        updatePaymentRecord(project.id, 'oneTime', isChecked)
+                                      } else if (trackingEventPopup.type === 'periodic') {
+                                        updatePaymentRecord(project.id, 'periodic', isChecked, trackingMonth.year, trackingMonth.month)
+                                      }
+                                    }}
+                                  />
+                                )}
+                                <div
+                                  className="flex-1 cursor-pointer min-w-0"
+                                  onClick={() => {
+                                    setTrackingEventPopup(null)
+                                    if (plan) {
+                                      handleSelectPlan(plan)
+                                      setTimeout(() => setSelectedProject(project), 100)
                                     }
-                                    setCheckedPayments(newChecked)
                                   }}
-                                />
-                              )}
-                              <div
-                                className="flex-1 flex items-center justify-between cursor-pointer min-w-0 gap-2"
-                                onClick={() => {
-                                  setTrackingEventPopup(null)
-                                  if (plan) {
-                                    handleSelectPlan(plan)
-                                    setTimeout(() => setSelectedProject(project), 100)
-                                  }
-                                }}
-                              >
-                                <span className="font-medium text-sm truncate">{project.name}</span>
-                                <div className="flex items-center gap-1.5 shrink-0">
-                                  {org && <span className="text-xs text-muted-foreground">{org.name}</span>}
-                                  {plan && <Badge variant="outline" className="text-[10px] px-1.5 py-0">{plan.name}</Badge>}
+                                >
+                                  <div className="flex items-center justify-between gap-2">
+                                    <span className="font-medium text-sm truncate">{project.name}</span>
+                                    {plan && <Badge variant="outline" className="text-[10px] px-1.5 py-0 shrink-0">{plan.name}</Badge>}
+                                  </div>
+                                  {/* 期間性補助詳細資訊 */}
+                                  {periodicInfo && (
+                                    <div className="mt-2 flex items-center justify-between text-sm">
+                                      <span className="text-blue-600 font-semibold">
+                                        NT$ {periodicInfo.amount.toLocaleString()}
+                                      </span>
+                                      <Badge variant="secondary" className="text-xs">
+                                        第 {periodicInfo.currentPayment} / {periodicInfo.totalPayments} 期
+                                      </Badge>
+                                    </div>
+                                  )}
                                 </div>
                               </div>
                             </div>
@@ -2372,9 +2709,34 @@ export function PlansPage() {
                         </span>
                       </div>
                       {currentStep && project.status === "active" && (
-                        <p className="text-xs text-muted-foreground mt-1">
-                          目前：{currentStep.name}
-                        </p>
+                        <div className="flex items-center gap-2 mt-1">
+                          <p className="text-xs text-muted-foreground">
+                            目前：{currentStep.name}
+                          </p>
+                          {/* 結案步驟已完成但還在追蹤付款 */}
+                          {(() => {
+                            const closingStep = project.workflow.find(s => s.name.includes("結案"))
+                            if (closingStep?.status === 'approved') {
+                              return (
+                                <Badge variant="secondary" className="text-[10px] px-1.5 py-0 bg-orange-100 text-orange-700 dark:bg-orange-950 dark:text-orange-300">
+                                  撥款中...
+                                </Badge>
+                              )
+                            }
+                            return null
+                          })()}
+                        </div>
+                      )}
+                      {/* 已完成狀態 */}
+                      {project.status === "completed" && (
+                        <div className="flex items-center gap-2 mt-1">
+                          <p className="text-xs text-muted-foreground">
+                            目前：已完成
+                          </p>
+                          <Badge variant="secondary" className="text-[10px] px-1.5 py-0 bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-300">
+                            已完成
+                          </Badge>
+                        </div>
                       )}
                     </div>
                   </div>
@@ -2427,7 +2789,7 @@ export function PlansPage() {
                           <span className="text-xs text-muted-foreground shrink-0">{project.projectNumber}</span>
                         )}
                         {project.description && (
-                          <Badge variant="secondary" className="text-xs shrink-0">
+                          <Badge variant="secondary" className="text-[10px] shrink-0 px-1.5 py-0">
                             {project.description}
                           </Badge>
                         )}
@@ -2472,9 +2834,34 @@ export function PlansPage() {
                         </span>
                       </div>
                       {currentStep && project.status === "active" && (
-                        <p className="text-xs text-muted-foreground mt-1">
-                          目前：{currentStep.name}
-                        </p>
+                        <div className="flex items-center gap-2 mt-1">
+                          <p className="text-xs text-muted-foreground">
+                            目前：{currentStep.name}
+                          </p>
+                          {/* 結案步驟已完成但還在追蹤付款 */}
+                          {(() => {
+                            const closingStep = project.workflow.find(s => s.name.includes("結案"))
+                            if (closingStep?.status === 'approved') {
+                              return (
+                                <Badge variant="secondary" className="text-[10px] px-1.5 py-0 bg-orange-100 text-orange-700 dark:bg-orange-950 dark:text-orange-300">
+                                  撥款中...
+                                </Badge>
+                              )
+                            }
+                            return null
+                          })()}
+                        </div>
+                      )}
+                      {/* 已完成狀態 */}
+                      {project.status === "completed" && (
+                        <div className="flex items-center gap-2 mt-1">
+                          <p className="text-xs text-muted-foreground">
+                            目前：已完成
+                          </p>
+                          <Badge variant="secondary" className="text-[10px] px-1.5 py-0 bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-300">
+                            已完成
+                          </Badge>
+                        </div>
                       )}
                       {/* Archived project actions */}
                       {showArchivedProjects && project.status === "archived" && (
@@ -3014,8 +3401,8 @@ export function PlansPage() {
                                   {format(new Date(step.approvedAt), "yyyy/MM/dd")}
                                 </span>
                               )}
-                              {/* Edit button for completed steps - right after step name */}
-                              {isCompletedStep && hasEditPermission() && (
+                              {/* Edit button for completed steps - right after step name (not for closing step) */}
+                              {isCompletedStep && hasEditPermission() && !step.name.includes("結案") && (
                                 editingStepId === step.id ? (
                                   <Button
                                     variant="ghost"
@@ -3148,190 +3535,93 @@ export function PlansPage() {
                               {step.name.includes("評估") && (
                                 <div className="space-y-4" id={`eval-form-${step.id}`}>
                                     {/* 訪視紀錄 - 只有個人申請才顯示，放在最上面 */}
-                                    {selectedProject.description === "個人" && (
-                                      <div className="space-y-3 p-4 border rounded-lg bg-muted/30">
-                                        <div className="flex items-center justify-between">
-                                          <div className="font-medium">訪視紀錄</div>
-                                          {canEditStep() ? (
-                                            <label className="flex items-center gap-2 cursor-pointer">
+                                    {selectedProject.description === "個人" && (() => {
+                                      const evalData = parseEvaluationData(step.note)
+                                      const visitData = evalData?.visitRecord || { hasVisit: false }
+
+                                      const updateVisitData = (updates: Record<string, unknown>) => {
+                                        const currentEvalData = parseEvaluationData(step.note) || {}
+                                        const newVisitRecord = { ...currentEvalData.visitRecord, ...updates }
+                                        const newEvalData = { ...currentEvalData, visitRecord: newVisitRecord }
+
+                                        // 更新 note 而不是 attachments
+                                        const newWorkflow = [...selectedProject.workflow]
+                                        newWorkflow[originalIndex] = {
+                                          ...newWorkflow[originalIndex],
+                                          note: JSON.stringify(newEvalData)
+                                        }
+                                        projectService.updateProject(selectedProject.id, { workflow: newWorkflow })
+                                          .then((updated) => {
+                                            if (updated) {
+                                              setSelectedProject(updated)
+                                              setProjects(prev => prev.map(p => p.id === updated.id ? updated : p))
+                                            }
+                                          })
+                                      }
+
+                                      return (
+                                        <div className="space-y-3 p-4 border rounded-lg bg-muted/30">
+                                          <div className="flex items-center gap-3">
+                                            {canEditStep() ? (
                                               <Checkbox
-                                                checked={(() => {
-                                                  try {
-                                                    const visit = JSON.parse(step.attachments?.[0]?.fileName || "{}")
-                                                    return visit.hasVisit === true
-                                                  } catch { return false }
-                                                })()}
-                                                onCheckedChange={(checked) => {
-                                                  const currentData = (() => {
-                                                    try {
-                                                      return JSON.parse(step.attachments?.[0]?.fileName || "{}")
-                                                    } catch { return {} }
-                                                  })()
-                                                  currentData.hasVisit = !!checked
-                                                  const visitData: ImageData = {
-                                                    id: "visit-record",
-                                                    originalUrl: "",
-                                                    thumbnailUrl: "",
-                                                    fileName: JSON.stringify(currentData),
-                                                    fileSize: 0,
-                                                    mimeType: "application/json",
-                                                    order: 0
-                                                  }
-                                                  handleUpdateStepAttachments(selectedProject, originalIndex, [visitData])
-                                                }}
+                                                checked={visitData.hasVisit === true}
+                                                onCheckedChange={(checked) => updateVisitData({ hasVisit: !!checked })}
                                               />
-                                              <span className="text-sm">有訪視</span>
-                                            </label>
-                                          ) : (
-                                            <span className="text-sm text-muted-foreground">
-                                              {(() => {
-                                                try {
-                                                  const visit = JSON.parse(step.attachments?.[0]?.fileName || "{}")
-                                                  return visit.hasVisit ? "有訪視" : "無訪視"
-                                                } catch { return "無訪視" }
-                                              })()}
-                                            </span>
+                                            ) : (
+                                              <span className={`text-xs px-2 py-0.5 rounded ${visitData.hasVisit ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground'}`}>
+                                                {visitData.hasVisit ? "有" : "無"}
+                                              </span>
+                                            )}
+                                            <div className="font-medium">訪視紀錄</div>
+                                          </div>
+                                          {/* 只有勾選有訪視才顯示詳細欄位 */}
+                                          {visitData.hasVisit && (
+                                            <>
+                                              <div className="grid grid-cols-2 gap-4">
+                                                <div className="space-y-2">
+                                                  <Label>訪視日期</Label>
+                                                  {canEditStep() ? (
+                                                    <Input
+                                                      type="date"
+                                                      defaultValue={visitData.date || ""}
+                                                      onChange={(e) => updateVisitData({ date: e.target.value })}
+                                                    />
+                                                  ) : (
+                                                    <div className="text-sm">{visitData.date || "-"}</div>
+                                                  )}
+                                                </div>
+                                                <div className="space-y-2">
+                                                  <Label>訪視人員</Label>
+                                                  {canEditStep() ? (
+                                                    <Input
+                                                      type="text"
+                                                      placeholder="填寫訪視人員..."
+                                                      defaultValue={visitData.visitor || ""}
+                                                      onBlur={(e) => updateVisitData({ visitor: e.target.value })}
+                                                    />
+                                                  ) : (
+                                                    <div className="text-sm">{visitData.visitor || "-"}</div>
+                                                  )}
+                                                </div>
+                                              </div>
+                                              <div className="space-y-2">
+                                                <Label>訪視內容</Label>
+                                                {canEditStep() ? (
+                                                  <textarea
+                                                    className="flex min-h-20 w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm"
+                                                    placeholder="填寫訪視內容..."
+                                                    defaultValue={visitData.content || ""}
+                                                    onBlur={(e) => updateVisitData({ content: e.target.value })}
+                                                  />
+                                                ) : (
+                                                  <div className="text-sm whitespace-pre-wrap">{visitData.content || "-"}</div>
+                                                )}
+                                              </div>
+                                            </>
                                           )}
                                         </div>
-                                        {/* 只有勾選有訪視才顯示詳細欄位 */}
-                                        {(() => {
-                                          try {
-                                            const visit = JSON.parse(step.attachments?.[0]?.fileName || "{}")
-                                            return visit.hasVisit === true
-                                          } catch { return false }
-                                        })() && (
-                                          <>
-                                            <div className="grid grid-cols-2 gap-4">
-                                              <div className="space-y-2">
-                                                <Label>訪視日期</Label>
-                                                {canEditStep() ? (
-                                                  <Input
-                                                    type="date"
-                                                    defaultValue={(() => {
-                                                      try {
-                                                        const visit = JSON.parse(step.attachments?.[0]?.fileName || "{}")
-                                                        return visit.date || ""
-                                                      } catch { return "" }
-                                                    })()}
-                                                    onChange={(e) => {
-                                                      const currentData = (() => {
-                                                        try {
-                                                          return JSON.parse(step.attachments?.[0]?.fileName || "{}")
-                                                        } catch { return {} }
-                                                      })()
-                                                      currentData.date = e.target.value
-                                                      const visitData: ImageData = {
-                                                        id: "visit-record",
-                                                        originalUrl: "",
-                                                        thumbnailUrl: "",
-                                                        fileName: JSON.stringify(currentData),
-                                                        fileSize: 0,
-                                                        mimeType: "application/json",
-                                                        order: 0
-                                                      }
-                                                      handleUpdateStepAttachments(selectedProject, originalIndex, [visitData])
-                                                    }}
-                                                  />
-                                                ) : (
-                                                  <div className="text-sm">
-                                                    {(() => {
-                                                      try {
-                                                        const visit = JSON.parse(step.attachments?.[0]?.fileName || "{}")
-                                                        return visit.date || "-"
-                                                      } catch { return "-" }
-                                                    })()}
-                                                  </div>
-                                                )}
-                                              </div>
-                                              <div className="space-y-2">
-                                                <Label>訪視人員</Label>
-                                                {canEditStep() ? (
-                                                  <Input
-                                                    type="text"
-                                                    placeholder="填寫訪視人員..."
-                                                    defaultValue={(() => {
-                                                      try {
-                                                        const visit = JSON.parse(step.attachments?.[0]?.fileName || "{}")
-                                                        return visit.visitor || ""
-                                                      } catch { return "" }
-                                                    })()}
-                                                    onBlur={(e) => {
-                                                      const currentData = (() => {
-                                                        try {
-                                                          return JSON.parse(step.attachments?.[0]?.fileName || "{}")
-                                                        } catch { return {} }
-                                                      })()
-                                                      currentData.visitor = e.target.value
-                                                      const visitData: ImageData = {
-                                                        id: "visit-record",
-                                                        originalUrl: "",
-                                                        thumbnailUrl: "",
-                                                        fileName: JSON.stringify(currentData),
-                                                        fileSize: 0,
-                                                        mimeType: "application/json",
-                                                        order: 0
-                                                      }
-                                                      handleUpdateStepAttachments(selectedProject, originalIndex, [visitData])
-                                                    }}
-                                                  />
-                                                ) : (
-                                                  <div className="text-sm">
-                                                    {(() => {
-                                                      try {
-                                                        const visit = JSON.parse(step.attachments?.[0]?.fileName || "{}")
-                                                        return visit.visitor || "-"
-                                                      } catch { return "-" }
-                                                    })()}
-                                                  </div>
-                                                )}
-                                              </div>
-                                            </div>
-                                            <div className="space-y-2">
-                                              <Label>訪視內容</Label>
-                                              {canEditStep() ? (
-                                                <textarea
-                                                  className="flex min-h-20 w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm"
-                                                  placeholder="填寫訪視內容..."
-                                                  defaultValue={(() => {
-                                                    try {
-                                                      const visit = JSON.parse(step.attachments?.[0]?.fileName || "{}")
-                                                      return visit.content || ""
-                                                    } catch { return "" }
-                                                  })()}
-                                                  onBlur={(e) => {
-                                                    const currentData = (() => {
-                                                      try {
-                                                        return JSON.parse(step.attachments?.[0]?.fileName || "{}")
-                                                      } catch { return {} }
-                                                    })()
-                                                    currentData.content = e.target.value
-                                                    const visitData: ImageData = {
-                                                      id: "visit-record",
-                                                      originalUrl: "",
-                                                      thumbnailUrl: "",
-                                                      fileName: JSON.stringify(currentData),
-                                                      fileSize: 0,
-                                                      mimeType: "application/json",
-                                                      order: 0
-                                                    }
-                                                    handleUpdateStepAttachments(selectedProject, originalIndex, [visitData])
-                                                  }}
-                                                />
-                                              ) : (
-                                                <div className="text-sm whitespace-pre-wrap">
-                                                  {(() => {
-                                                    try {
-                                                      const visit = JSON.parse(step.attachments?.[0]?.fileName || "{}")
-                                                      return visit.content || "-"
-                                                    } catch { return "-" }
-                                                  })()}
-                                                </div>
-                                              )}
-                                            </div>
-                                          </>
-                                        )}
-                                      </div>
-                                    )}
+                                      )
+                                    })()}
 
                                     {/* 評估標準表格 */}
                                     {(() => {
@@ -3339,6 +3629,19 @@ export function PlansPage() {
                                       const scores = evalData?.evaluationScores || {}
                                       const totalScore = calculateTotalScore(scores)
                                       const maxTotal = EVALUATION_CRITERIA.reduce((sum, c) => sum + c.maxScore, 0)
+
+                                      // 即時計算總分的函數
+                                      const updateTotalDisplay = () => {
+                                        const formEl = document.getElementById(`eval-form-${step.id}`)
+                                        if (!formEl) return
+                                        const totalEl = formEl.querySelector('[data-eval-total]')
+                                        if (!totalEl) return
+                                        let sum = 0
+                                        formEl.querySelectorAll<HTMLInputElement>('[data-eval-score]').forEach((input) => {
+                                          sum += parseInt(input.value) || 0
+                                        })
+                                        totalEl.textContent = `${sum}/${maxTotal}`
+                                      }
 
                                       return (
                                         <div className="border rounded-lg overflow-hidden">
@@ -3384,6 +3687,8 @@ export function PlansPage() {
                                                                 } else if (val < 0) {
                                                                   e.target.value = '0'
                                                                 }
+                                                                // 即時更新總分顯示
+                                                                updateTotalDisplay()
                                                               }}
                                                             />
                                                             <span className="text-muted-foreground">/{criteria.maxScore}</span>
@@ -3411,7 +3716,7 @@ export function PlansPage() {
                                               })}
                                               <tr className="bg-muted/30 font-medium">
                                                 <td className="p-4 text-right">共計</td>
-                                                <td className="p-4 text-center">{totalScore}/{maxTotal}</td>
+                                                <td className="p-4 text-center" data-eval-total>{totalScore}/{maxTotal}</td>
                                                 <td className="p-4"></td>
                                               </tr>
                                             </tbody>
@@ -3663,38 +3968,24 @@ export function PlansPage() {
                                     {/* 評議委員會日期 - 放在最下方 */}
                                     <div className="space-y-2 pt-4 border-t">
                                       <Label>評議委員會日期</Label>
-                                      {canEditStep() ? (
-                                        <Input
-                                          type="date"
-                                          id={`committee-date-inline-${step.id}`}
-                                          defaultValue={(() => {
-                                            // Get the date from next step (評議委員會)
-                                            const nextStep = selectedProject.workflow[originalIndex + 1]
-                                            return nextStep?.subTasks?.[0]?.note || ""
-                                          })()}
-                                          onChange={async (e) => {
-                                            // Update the 評議委員會 step's subTask note with the date
-                                            const nextStepIndex = originalIndex + 1
-                                            if (nextStepIndex < selectedProject.workflow.length) {
-                                              const newWorkflow = [...selectedProject.workflow]
-                                              const nextStep = newWorkflow[nextStepIndex]
-                                              if (nextStep.subTasks && nextStep.subTasks.length > 0) {
-                                                nextStep.subTasks[0].note = e.target.value
-                                                await projectService.updateProject(selectedProject.id, { workflow: newWorkflow })
-                                                const updated = await projectService.getProjectById(selectedProject.id)
-                                                if (updated) setSelectedProject(updated)
-                                              }
-                                            }
-                                          }}
-                                        />
-                                      ) : (
+                                      <div className="flex items-center gap-3">
                                         <div className="text-sm font-medium">
                                           {(() => {
                                             const nextStep = selectedProject.workflow[originalIndex + 1]
-                                            return nextStep?.subTasks?.[0]?.note || "-"
+                                            const date = nextStep?.subTasks?.[0]?.note
+                                            return date ? format(new Date(date), "yyyy/MM/dd") : "-"
                                           })()}
                                         </div>
-                                      )}
+                                        <Button
+                                          variant="outline"
+                                          size="sm"
+                                          className="h-8 px-4 bg-primary/10 border-primary/30 hover:bg-primary/20"
+                                          onClick={() => openCommitteeDateDialog(selectedProject)}
+                                        >
+                                          <CalendarClock className="h-4 w-4 mr-2" />
+                                          {getCommitteeDate(selectedProject) ? "修改日期" : "設定日期"}
+                                        </Button>
+                                      </div>
                                     </div>
 
                                   </div>
@@ -3766,15 +4057,12 @@ export function PlansPage() {
                                 </div>
                               )}
 
-                              {/* Attachments & Upload - Horizontal Scroll with Mobile Snap (不顯示評估表，因為有專用區塊) */}
-                              {!step.name.includes("評估") && ((step.attachments && step.attachments.length > 0) || canUpload) && (
-                                <div
-                                  className="overflow-x-auto pb-2 -mx-4 px-4 snap-x snap-mandatory md:snap-none snap-scroll-container scrollbar-hide"
-                                  style={{ WebkitOverflowScrolling: 'touch' }}
-                                >
+                              {/* Attachments & Upload - Horizontal Scroll with Custom Slider (不顯示評估表和評議委員會，因為有專用區塊) */}
+                              {!step.name.includes("評估") && !step.name.includes("評議委員會") && ((step.attachments && step.attachments.length > 0) || canUpload) && (
+                                <HorizontalScrollSlider>
                                   <div className="flex gap-4 md:gap-4 items-start" style={{ width: 'max-content' }}>
                                     {step.attachments?.map((attachment) => (
-                                      <div key={attachment.id} className="flex-shrink-0 snap-center w-[90vw] md:w-auto flex items-center justify-center">
+                                      <div key={attachment.id} className="flex-shrink-0 snap-center min-w-[90vw] w-[90vw] md:min-w-0 md:w-auto flex items-center justify-center overflow-hidden">
                                         {attachment.mimeType === "application/pdf" ? (
                                           <PDFPageViewer
                                             url={attachment.originalUrl}
@@ -3804,7 +4092,7 @@ export function PlansPage() {
                                     ))}
                                     {/* Inline upload button - only in edit mode */}
                                     {canUpload && (
-                                      <div className="flex-shrink-0 snap-center h-[70vh] w-[90vw] md:w-[180px] flex items-center justify-center">
+                                      <div className="flex-shrink-0 snap-center h-[70vh] min-w-[90vw] w-[90vw] md:min-w-0 md:w-[180px] flex items-center justify-center">
                                         <DropZone
                                           accept="image/*,application/pdf"
                                           multiple
@@ -3843,7 +4131,7 @@ export function PlansPage() {
                                       </div>
                                     )}
                                   </div>
-                                </div>
+                                </HorizontalScrollSlider>
                               )}
 
                               {/* Execution submissions - 已停用，不顯示執行記錄 */}
@@ -3939,7 +4227,8 @@ export function PlansPage() {
                                             <div>
                                               <Label className="text-xs text-muted-foreground">附件</Label>
                                               <div
-                                                className="mt-1 overflow-x-auto -mx-3 px-3 snap-x snap-mandatory md:snap-none snap-scroll-container scrollbar-hide"
+                                                className="mt-1 overflow-x-auto -mx-3 px-3 snap-x snap-mandatory md:snap-none snap-scroll-container scrollbar-hide md:drag-scroll"
+                                                                ref={enableDragScroll}
                                                 style={{ WebkitOverflowScrolling: 'touch' }}
                                               >
                                                 <div className="flex gap-3 items-start" style={{ width: 'max-content' }}>
@@ -4039,7 +4328,8 @@ export function PlansPage() {
                                             )}
                                             {execution.attachments && execution.attachments.length > 0 && (
                                               <div
-                                                className="overflow-x-auto -mx-3 px-3 snap-x snap-mandatory md:snap-none snap-scroll-container scrollbar-hide"
+                                                className="overflow-x-auto -mx-3 px-3 snap-x snap-mandatory md:snap-none snap-scroll-container scrollbar-hide md:drag-scroll"
+                                                                ref={enableDragScroll}
                                                 style={{ WebkitOverflowScrolling: 'touch' }}
                                               >
                                                 <div className="flex gap-3 md:gap-3" style={{ width: 'max-content' }}>
@@ -4143,10 +4433,7 @@ export function PlansPage() {
                                   {/* PDF 顯示和上傳區域 */}
                                   <div className="space-y-2">
                                     <Label>評議委員會文件</Label>
-                                    <div
-                                      className="overflow-x-auto pb-2 -mx-4 px-4 snap-x snap-mandatory md:snap-none snap-scroll-container scrollbar-hide"
-                                      style={{ WebkitOverflowScrolling: 'touch' }}
-                                    >
+                                    <HorizontalScrollSlider>
                                       <div className="flex gap-4 md:gap-4 items-start" style={{ width: 'max-content' }}>
                                         {/* 顯示評估表自動生成的 PDF */}
                                         {(() => {
@@ -4154,7 +4441,7 @@ export function PlansPage() {
                                             const stepNote = step.note ? JSON.parse(step.note) : {}
                                             if (stepNote.evaluationPdf?.url) {
                                               return (
-                                                <div className="flex-shrink-0 snap-center w-[90vw] md:w-auto flex flex-col items-center">
+                                                <div className="flex-shrink-0 snap-center min-w-[90vw] w-[90vw] md:min-w-0 md:w-auto flex flex-col items-center overflow-hidden">
                                                   <PDFPageViewer
                                                     url={stepNote.evaluationPdf.url}
                                                     pageHeight="70vh"
@@ -4168,7 +4455,7 @@ export function PlansPage() {
                                         })()}
                                         {/* 顯示手動上傳的附件 */}
                                         {step.attachments?.map((attachment) => (
-                                          <div key={attachment.id} className="flex-shrink-0 snap-center w-[90vw] md:w-auto flex flex-col items-center">
+                                          <div key={attachment.id} className="flex-shrink-0 snap-center min-w-[90vw] w-[90vw] md:min-w-0 md:w-auto flex flex-col items-center overflow-hidden">
                                             {attachment.mimeType === "application/pdf" ? (
                                               <PDFPageViewer
                                                 url={attachment.originalUrl}
@@ -4185,7 +4472,7 @@ export function PlansPage() {
                                         ))}
                                         {/* 編輯模式下顯示上傳區域 */}
                                         {canEditStep() && (
-                                          <div className="flex-shrink-0 snap-center h-[70vh] w-[90vw] md:w-[180px] flex items-center justify-center">
+                                          <div className="flex-shrink-0 snap-center h-[70vh] min-w-[90vw] w-[90vw] md:min-w-0 md:w-[180px] flex items-center justify-center">
                                             <DropZone
                                               accept="image/*,application/pdf"
                                               multiple
@@ -4231,7 +4518,7 @@ export function PlansPage() {
                                           </div>
                                         )}
                                       </div>
-                                    </div>
+                                    </HorizontalScrollSlider>
                                   </div>
                                   {(() => {
                                     try {
@@ -4334,6 +4621,16 @@ export function PlansPage() {
                                                   </div>
                                                 </div>
                                               )}
+
+                                              {/* 每月匯款日 */}
+                                              {data.periodicPaymentDay && (
+                                                <div>
+                                                  <Label className="text-muted-foreground text-xs">每月匯款日</Label>
+                                                  <div className="text-sm font-medium">
+                                                    每月 {data.periodicPaymentDay} 號
+                                                  </div>
+                                                </div>
+                                              )}
                                             </>
                                           )}
                                         </>
@@ -4370,6 +4667,116 @@ export function PlansPage() {
                                             </div>
                                           )}
 
+                                          {/* 每月匯款日 - 期間性 */}
+                                          {subsidyData.subsidyType === 'periodic' && (
+                                            <div>
+                                              <Label className="text-muted-foreground text-xs">每月匯款日</Label>
+                                              {editingClosingPaymentDay === step.id ? (
+                                                <div className="flex items-center gap-2 mt-1">
+                                                  <span className="text-sm text-muted-foreground">每月</span>
+                                                  <Input
+                                                    type="number"
+                                                    min="1"
+                                                    max="31"
+                                                    placeholder="日"
+                                                    value={closingPaymentDayValue}
+                                                    onChange={(e) => {
+                                                      const val = parseInt(e.target.value)
+                                                      if (val > 31) {
+                                                        setClosingPaymentDayValue('31')
+                                                      } else if (val < 1 && e.target.value !== '') {
+                                                        setClosingPaymentDayValue('1')
+                                                      } else {
+                                                        setClosingPaymentDayValue(e.target.value)
+                                                      }
+                                                    }}
+                                                    className="w-16 h-8"
+                                                  />
+                                                  <span className="text-sm text-muted-foreground">號</span>
+                                                  <Button
+                                                    size="sm"
+                                                    variant="ghost"
+                                                    className="h-8 px-2"
+                                                    onClick={async () => {
+                                                      if (!selectedProject) return
+                                                      setIsProcessing(true)
+                                                      try {
+                                                        const newWorkflow = [...selectedProject.workflow]
+                                                        const closingStep = newWorkflow.find(s => s.name.includes("結案"))
+                                                        const committeeStep = newWorkflow.find(s => s.name.includes("評議委員會"))
+
+                                                        // 更新評議委員會的 note
+                                                        if (committeeStep?.note) {
+                                                          const committeeData = JSON.parse(committeeStep.note)
+                                                          committeeData.periodicPaymentDay = closingPaymentDayValue
+                                                          committeeStep.note = JSON.stringify(committeeData)
+                                                        }
+
+                                                        // 更新結案的 note
+                                                        if (closingStep?.note) {
+                                                          const closingData = JSON.parse(closingStep.note)
+                                                          closingData.periodicPaymentDay = closingPaymentDayValue
+                                                          closingStep.note = JSON.stringify(closingData)
+                                                        }
+
+                                                        await projectService.updateProject(selectedProject.id, {
+                                                          workflow: newWorkflow,
+                                                        })
+
+                                                        // 更新本地狀態
+                                                        setSelectedProject({
+                                                          ...selectedProject,
+                                                          workflow: newWorkflow,
+                                                        })
+                                                        setProjects(prev =>
+                                                          prev.map(p =>
+                                                            p.id === selectedProject.id
+                                                              ? { ...p, workflow: newWorkflow }
+                                                              : p
+                                                          )
+                                                        )
+                                                        setEditingClosingPaymentDay(null)
+                                                      } catch (error) {
+                                                        console.error('Failed to update payment day:', error)
+                                                        alert('更新失敗')
+                                                      } finally {
+                                                        setIsProcessing(false)
+                                                      }
+                                                    }}
+                                                    disabled={isProcessing}
+                                                  >
+                                                    <Check className="h-4 w-4" />
+                                                  </Button>
+                                                  <Button
+                                                    size="sm"
+                                                    variant="ghost"
+                                                    className="h-8 px-2"
+                                                    onClick={() => setEditingClosingPaymentDay(null)}
+                                                  >
+                                                    <XCircle className="h-4 w-4" />
+                                                  </Button>
+                                                </div>
+                                              ) : (
+                                                <div className="flex items-center gap-2">
+                                                  <span className="text-sm font-medium">
+                                                    每月 {data.periodicPaymentDay || subsidyData.periodicPaymentDay || '-'} 號
+                                                  </span>
+                                                  <Button
+                                                    size="sm"
+                                                    variant="ghost"
+                                                    className="h-6 w-6 p-0"
+                                                    onClick={() => {
+                                                      setClosingPaymentDayValue(data.periodicPaymentDay || subsidyData.periodicPaymentDay || '')
+                                                      setEditingClosingPaymentDay(step.id)
+                                                    }}
+                                                  >
+                                                    <EditIcon className="h-3 w-3" />
+                                                  </Button>
+                                                </div>
+                                              )}
+                                            </div>
+                                          )}
+
                                           {/* 追蹤日期 - 期間性 */}
                                           {subsidyData.subsidyType === 'periodic' && data.trackingDates && data.trackingDates.length > 0 && (
                                             <div>
@@ -4384,6 +4791,22 @@ export function PlansPage() {
                                               </div>
                                             </div>
                                           )}
+
+                                          {/* 前往追蹤按鈕 */}
+                                          <Button
+                                            variant="outline"
+                                            size="sm"
+                                            className="w-full mt-2"
+                                            onClick={() => {
+                                              setSelectedPlan(null)
+                                              setSelectedProject(null)
+                                              setMobileView("plans")
+                                              setViewMode('tracking')
+                                            }}
+                                          >
+                                            <CalendarClock className="h-4 w-4 mr-2" />
+                                            前往追蹤
+                                          </Button>
                                         </>
                                       )
                                     } catch {
@@ -4508,7 +4931,8 @@ export function PlansPage() {
                                         <div className="space-y-2">
                                           <Label>評議委員會文件</Label>
                                           <div
-                                            className="overflow-x-auto pb-2 -mx-4 px-4 snap-x snap-mandatory md:snap-none snap-scroll-container scrollbar-hide"
+                                            className="overflow-x-auto pb-2 -mx-4 px-4 snap-x snap-mandatory md:snap-none snap-scroll-container scrollbar-hide md:drag-scroll"
+                                                  ref={enableDragScroll}
                                             style={{ WebkitOverflowScrolling: 'touch' }}
                                           >
                                             <div className="flex gap-4 md:gap-4 items-start" style={{ width: 'max-content' }}>
@@ -4663,7 +5087,7 @@ export function PlansPage() {
                                                 </div>
                                               </div>
 
-                                              {/* 一次性：月份和金額 */}
+                                              {/* 一次性：月份、金額和匯款日期 */}
                                               {currentSubsidyType === 'oneTime' && (
                                                 <div className="space-y-4 p-4 border rounded-lg bg-muted/30">
                                                   <div className="space-y-2">
@@ -4689,6 +5113,15 @@ export function PlansPage() {
                                                       />
                                                       <span className="text-sm text-muted-foreground">元整</span>
                                                     </div>
+                                                  </div>
+                                                  <div className="space-y-2">
+                                                    <Label>匯款日期</Label>
+                                                    <Input
+                                                      type="date"
+                                                      id={`oneTimePaymentDate-${step.id}`}
+                                                      defaultValue={committeeForm.oneTimePaymentDate}
+                                                      className="w-40"
+                                                    />
                                                   </div>
                                                 </div>
                                               )}
@@ -4768,6 +5201,29 @@ export function PlansPage() {
                                                       <span className="text-sm text-muted-foreground">元整</span>
                                                     </div>
                                                   </div>
+
+                                                  {/* 每月匯款日 */}
+                                                  <div className="space-y-2">
+                                                    <Label>每月匯款日</Label>
+                                                    <div className="flex items-center gap-2">
+                                                      <span className="text-sm text-muted-foreground">每月</span>
+                                                      <Input
+                                                        type="number"
+                                                        min="1"
+                                                        max="31"
+                                                        placeholder="日"
+                                                        id={`periodicPaymentDay-${step.id}`}
+                                                        defaultValue={committeeForm.periodicPaymentDay}
+                                                        className="w-16"
+                                                        onChange={(e) => {
+                                                          const val = parseInt(e.target.value)
+                                                          if (val > 31) e.target.value = '31'
+                                                          if (val < 1 && e.target.value !== '') e.target.value = '1'
+                                                        }}
+                                                      />
+                                                      <span className="text-sm text-muted-foreground">號</span>
+                                                    </div>
+                                                  </div>
                                                 </div>
                                               )}
                                             </>
@@ -4779,7 +5235,7 @@ export function PlansPage() {
                                       (() => {
                                         // 從評議委員會步驟讀取補助類型
                                         const committeeStep = selectedProject?.workflow.find(s => s.name.includes("評議委員會"))
-                                        let subsidyData: { subsidyType?: string; oneTimeMonth?: string; oneTimeAmount?: string; periodStart?: string; periodEnd?: string; frequency?: string; periodicMonths?: string; periodicAmount?: string } = {}
+                                        let subsidyData: { subsidyType?: string; oneTimeMonth?: string; oneTimeAmount?: string; oneTimePaymentDate?: string; periodStart?: string; periodEnd?: string; frequency?: string; periodicMonths?: string; periodicAmount?: string; periodicPaymentDay?: string } = {}
                                         try {
                                           if (committeeStep?.note) {
                                             subsidyData = JSON.parse(committeeStep.note)
@@ -4788,103 +5244,186 @@ export function PlansPage() {
                                         const isOneTime = subsidyData.subsidyType === 'oneTime'
                                         const isPeriodic = subsidyData.subsidyType === 'periodic'
 
-                                        // 期間性不需要顯示表單（直接 100%）
+                                        // 期間性：顯示每月匯款日設定
                                         if (isPeriodic) {
                                           return (
-                                            <div className="bg-green-50 dark:bg-green-950/20 rounded-lg p-4 text-center">
-                                              <CheckCircle className="h-8 w-8 text-green-600 mx-auto mb-2" />
-                                              <div className="font-medium text-green-800 dark:text-green-200">期間性補助進行中</div>
-                                              <div className="text-sm text-muted-foreground mt-1">
-                                                補助期間：{subsidyData.periodStart} 至 {subsidyData.periodEnd}
+                                            <div className="space-y-4">
+                                              <div className="bg-green-50 dark:bg-green-950/20 rounded-lg p-4">
+                                                <div className="flex items-center gap-2 mb-2">
+                                                  <CheckCircle className="h-5 w-5 text-green-600" />
+                                                  <span className="font-medium text-green-800 dark:text-green-200">期間性補助</span>
+                                                </div>
+                                                <div className="text-sm text-muted-foreground">
+                                                  補助期間：{subsidyData.periodStart} 至 {subsidyData.periodEnd}
+                                                </div>
+                                                <div className="text-sm text-muted-foreground">
+                                                  每月金額：新台幣 {Number(subsidyData.periodicAmount || 0).toLocaleString()} 元整
+                                                </div>
                                               </div>
-                                              <div className="text-xs text-muted-foreground mt-1">
-                                                請使用「個案追蹤」功能管理追蹤進度
+
+                                              {/* 每月匯款日設定 */}
+                                              <div className="space-y-2">
+                                                <Label>每月匯款日</Label>
+                                                <div className="flex items-center gap-2">
+                                                  <span className="text-sm text-muted-foreground">每月</span>
+                                                  <Input
+                                                    type="number"
+                                                    min="1"
+                                                    max="31"
+                                                    placeholder="日"
+                                                    id={`periodicPaymentDay-${step.id}`}
+                                                    defaultValue={subsidyData.periodicPaymentDay || ''}
+                                                    className="w-16"
+                                                    onChange={(e) => {
+                                                      const val = parseInt(e.target.value)
+                                                      if (val > 31) e.target.value = '31'
+                                                      if (val < 1 && e.target.value !== '') e.target.value = '1'
+                                                    }}
+                                                  />
+                                                  <span className="text-sm text-muted-foreground">號</span>
+                                                </div>
                                               </div>
+
+                                              <Button
+                                                variant="outline"
+                                                className="w-full"
+                                                onClick={() => {
+                                                  setSelectedProject(null)
+                                                  setMobileView("plans")
+                                                  setViewMode('tracking')
+                                                }}
+                                              >
+                                                <CalendarClock className="h-4 w-4 mr-2" />
+                                                前往追蹤
+                                              </Button>
                                             </div>
                                           )
                                         }
 
-                                        // 一次性：顯示匯款日期 + 附件
+                                        // 一次性：顯示匯款日期（類似期間性的顯示方式）
                                         return (
-                                          <>
-                                            {/* 顯示補助摘要 */}
-                                            {isOneTime && (
-                                              <div className="bg-muted/30 rounded-lg p-3 text-sm">
-                                                <div className="font-medium mb-1">補助類型：一次性</div>
-                                                {subsidyData.oneTimeAmount && (
-                                                  <div className="text-muted-foreground">
-                                                    補助金額：新台幣 {Number(subsidyData.oneTimeAmount).toLocaleString()} 元整
-                                                  </div>
-                                                )}
+                                          <div className="space-y-4">
+                                            <div className="bg-green-50 dark:bg-green-950/20 rounded-lg p-4">
+                                              <div className="flex items-center gap-2 mb-2">
+                                                <CheckCircle className="h-5 w-5 text-green-600" />
+                                                <span className="font-medium text-green-800 dark:text-green-200">一次性補助</span>
                                               </div>
-                                            )}
-
-                                            {/* 一次性：匯款日期 */}
-                                            <div className="space-y-2">
-                                              <Label>匯款日期</Label>
-                                              <Input
-                                                type="date"
-                                                id={`paymentDate-${step.id}`}
-                                                defaultValue={closingForm.paymentDate}
-                                                className="w-40"
-                                              />
-                                            </div>
-
-                                            {/* 一次性：附件 - 水平滾動 */}
-                                            <div className="space-y-2">
-                                              <Label>附件</Label>
-                                              <div
-                                                className="overflow-x-auto -mx-4 px-4 snap-x snap-mandatory md:snap-none snap-scroll-container scrollbar-hide"
-                                                style={{ WebkitOverflowScrolling: 'touch' }}
-                                              >
-                                                <div className="flex gap-4 items-start" style={{ width: 'max-content' }}>
-                                                  {closingAttachments.map((attachment) => (
-                                                    <div key={attachment.id} className="flex-shrink-0 snap-center w-[90vw] md:w-auto flex items-center justify-center">
-                                                      {attachment.mimeType === "application/pdf" ? (
-                                                        <PDFPageViewer
-                                                          url={attachment.originalUrl}
-                                                          pageHeight="40vh"
-                                                        />
-                                                      ) : (
-                                                        <img
-                                                          src={attachment.thumbnailUrl || attachment.originalUrl}
-                                                          alt={attachment.fileName}
-                                                          className="h-[40vh] w-auto max-w-[90vw] md:max-w-none object-contain rounded"
-                                                        />
-                                                      )}
-                                                    </div>
-                                                  ))}
-                                                  <div className="flex-shrink-0 snap-center h-[40vh] w-[90vw] md:w-[150px] flex items-center justify-center">
-                                                    <DropZone
-                                                      accept="image/*,application/pdf"
-                                                      multiple
-                                                      className="h-full w-full md:w-[150px]"
-                                                      onFilesSelected={async (files) => {
-                                                        const container = projectDetailScrollRef.current; const scrollTop = container?.scrollTop || 0
-                                                        const validFiles = files.filter(file => {
-                                                          const validation = validateFile(file, 'receipt')
-                                                          return validation.valid
-                                                        })
-                                                        if (validFiles.length === 0) return
-                                                        try {
-                                                          const results = await imageService.uploadMultiple(validFiles, 'receipt')
-                                                          const startOrder = closingAttachments.length
-                                                          const newAttachments = results.map((img, idx) => ({
-                                                            ...img,
-                                                            order: startOrder + idx,
-                                                          }))
-                                                          setClosingAttachments([...closingAttachments, ...newAttachments])
-                                                          setTimeout(() => { if (projectDetailScrollRef.current) projectDetailScrollRef.current.scrollTop = scrollTop }, 100)
-                                                        } catch (err) {
-                                                          console.error('Upload failed:', err)
-                                                        }
-                                                      }}
-                                                    />
-                                                  </div>
+                                              {subsidyData.oneTimeAmount && (
+                                                <div className="text-sm text-muted-foreground">
+                                                  補助金額：新台幣 {Number(subsidyData.oneTimeAmount).toLocaleString()} 元整
                                                 </div>
-                                              </div>
+                                              )}
                                             </div>
-                                          </>
+
+                                            {/* 一次性：匯款日期顯示（可編輯） */}
+                                            <div>
+                                              <Label className="text-muted-foreground text-xs">匯款日期</Label>
+                                              {editingClosingPaymentDay === step.id ? (
+                                                <div className="flex items-center gap-2 mt-1">
+                                                  <Input
+                                                    type="date"
+                                                    value={closingPaymentDayValue}
+                                                    onChange={(e) => setClosingPaymentDayValue(e.target.value)}
+                                                    className="w-40 h-8"
+                                                  />
+                                                  <Button
+                                                    size="sm"
+                                                    variant="ghost"
+                                                    className="h-8 px-2"
+                                                    onClick={async () => {
+                                                      if (!selectedProject) return
+                                                      setIsProcessing(true)
+                                                      try {
+                                                        const newWorkflow = [...selectedProject.workflow]
+                                                        const committeeStepToUpdate = newWorkflow.find(s => s.name.includes("評議委員會"))
+                                                        const closingStepToUpdate = newWorkflow.find(s => s.name.includes("結案"))
+
+                                                        // 更新評議委員會的 note
+                                                        if (committeeStepToUpdate?.note) {
+                                                          const committeeData = JSON.parse(committeeStepToUpdate.note)
+                                                          committeeData.oneTimePaymentDate = closingPaymentDayValue
+                                                          committeeStepToUpdate.note = JSON.stringify(committeeData)
+                                                        }
+
+                                                        // 更新結案的 note
+                                                        if (closingStepToUpdate?.note) {
+                                                          const closingData = JSON.parse(closingStepToUpdate.note)
+                                                          closingData.oneTimePaymentDate = closingPaymentDayValue
+                                                          closingStepToUpdate.note = JSON.stringify(closingData)
+                                                        }
+
+                                                        await projectService.updateProject(selectedProject.id, {
+                                                          workflow: newWorkflow,
+                                                        })
+
+                                                        // 更新本地狀態
+                                                        setSelectedProject({
+                                                          ...selectedProject,
+                                                          workflow: newWorkflow,
+                                                        })
+                                                        setProjects(prev =>
+                                                          prev.map(p =>
+                                                            p.id === selectedProject.id
+                                                              ? { ...p, workflow: newWorkflow }
+                                                              : p
+                                                          )
+                                                        )
+                                                        setEditingClosingPaymentDay(null)
+                                                      } catch (error) {
+                                                        console.error('Failed to update payment date:', error)
+                                                        alert('更新失敗')
+                                                      } finally {
+                                                        setIsProcessing(false)
+                                                      }
+                                                    }}
+                                                    disabled={isProcessing}
+                                                  >
+                                                    <Check className="h-4 w-4" />
+                                                  </Button>
+                                                  <Button
+                                                    size="sm"
+                                                    variant="ghost"
+                                                    className="h-8 px-2"
+                                                    onClick={() => setEditingClosingPaymentDay(null)}
+                                                  >
+                                                    <XCircle className="h-4 w-4" />
+                                                  </Button>
+                                                </div>
+                                              ) : (
+                                                <div className="flex items-center gap-2">
+                                                  <span className="text-sm font-medium">
+                                                    {subsidyData.oneTimePaymentDate
+                                                      ? format(new Date(subsidyData.oneTimePaymentDate), 'yyyy/MM/dd')
+                                                      : '-'}
+                                                  </span>
+                                                  <Button
+                                                    size="sm"
+                                                    variant="ghost"
+                                                    className="h-6 w-6 p-0"
+                                                    onClick={() => {
+                                                      setClosingPaymentDayValue(subsidyData.oneTimePaymentDate || '')
+                                                      setEditingClosingPaymentDay(step.id)
+                                                    }}
+                                                  >
+                                                    <EditIcon className="h-3 w-3" />
+                                                  </Button>
+                                                </div>
+                                              )}
+                                            </div>
+
+                                            <Button
+                                              variant="outline"
+                                              className="w-full"
+                                              onClick={() => {
+                                                setSelectedProject(null)
+                                                setMobileView("plans")
+                                                setViewMode('tracking')
+                                              }}
+                                            >
+                                              <CalendarClock className="h-4 w-4 mr-2" />
+                                              前往追蹤
+                                            </Button>
+                                          </div>
                                         )
                                       })()
                                     ) : !step.name.includes("評估") && (
@@ -4902,7 +5441,8 @@ export function PlansPage() {
                                         <div>
                                           <Label className="text-xs text-muted-foreground">附件</Label>
                                           <div
-                                            className="mt-1 overflow-x-auto -mx-4 px-4 snap-x snap-mandatory md:snap-none snap-scroll-container scrollbar-hide"
+                                            className="mt-1 overflow-x-auto -mx-4 px-4 snap-x snap-mandatory md:snap-none snap-scroll-container scrollbar-hide md:drag-scroll"
+                                                            ref={enableDragScroll}
                                             style={{ WebkitOverflowScrolling: 'touch' }}
                                           >
                                             <div className="flex gap-4 items-start" style={{ width: 'max-content' }}>
@@ -4947,26 +5487,108 @@ export function PlansPage() {
                                                       console.error('Upload failed:', err)
                                                     }
                                                   }}
-                                                />
+                                                >
+                                                  {step.name.includes("文件寄發") && (
+                                                    <div className="flex flex-col items-center justify-center p-6 text-center h-full min-h-[120px]">
+                                                      <div className="rounded-full p-3 mb-3 bg-muted">
+                                                        <FileText className="h-6 w-6 text-muted-foreground" />
+                                                      </div>
+                                                      <p className="text-sm font-medium text-foreground">
+                                                        上傳 核定通知單
+                                                      </p>
+                                                      <p className="text-xs text-muted-foreground mt-1">
+                                                        支援多張圖片及 PDF
+                                                      </p>
+                                                    </div>
+                                                  )}
+                                                </DropZone>
                                               </div>
                                             </div>
                                           </div>
                                         </div>
                                       </>
                                     )}
-                                    {/* 結案步驟：檢查補助類型決定是否顯示按鈕 */}
+                                    {/* 結案步驟：一次性和期間性都顯示「儲存匯款日」按鈕 */}
                                     {(() => {
-                                      // 期間性結案不顯示按鈕
                                       if (step.name.includes("結案")) {
                                         const committeeStep = selectedProject?.workflow.find(s => s.name.includes("評議委員會"))
-                                        let subsidyData: { subsidyType?: string } = {}
+                                        let subsidyData: { subsidyType?: string; oneTimePaymentDate?: string } = {}
                                         try {
                                           if (committeeStep?.note) {
                                             subsidyData = JSON.parse(committeeStep.note)
                                           }
                                         } catch {}
-                                        if (subsidyData.subsidyType === 'periodic') {
-                                          return null // 期間性不顯示按鈕
+                                        // 一次性和期間性都顯示「儲存匯款日」按鈕
+                                        if (subsidyData.subsidyType === 'periodic' || subsidyData.subsidyType === 'oneTime') {
+                                          return (
+                                            <Button
+                                              className="w-full disabled:opacity-50 disabled:cursor-not-allowed"
+                                              onClick={async () => {
+                                                if (!selectedProject || !user) return
+                                                setIsProcessing(true)
+                                                try {
+                                                  const newWorkflow = [...selectedProject.workflow]
+                                                  const closingStep = newWorkflow[selectedProject.currentStep]
+                                                  const committeeStepToUpdate = newWorkflow.find(s => s.name.includes("評議委員會"))
+
+                                                  if (subsidyData.subsidyType === 'periodic') {
+                                                    // 期間性：收集每月匯款日
+                                                    const periodicPaymentDay = (document.getElementById(`periodicPaymentDay-${step.id}`) as HTMLInputElement)?.value || ''
+
+                                                    // 驗證範圍
+                                                    const dayNum = parseInt(periodicPaymentDay)
+                                                    if (periodicPaymentDay && (dayNum < 1 || dayNum > 31)) {
+                                                      alert('每月匯款日必須在 1-31 之間')
+                                                      setIsProcessing(false)
+                                                      return
+                                                    }
+
+                                                    // 更新評議委員會的 note
+                                                    if (committeeStepToUpdate?.note) {
+                                                      try {
+                                                        const committeeData = JSON.parse(committeeStepToUpdate.note)
+                                                        committeeData.periodicPaymentDay = periodicPaymentDay
+                                                        committeeStepToUpdate.note = JSON.stringify(committeeData)
+                                                      } catch {}
+                                                    }
+
+                                                    // 結案步驟標記為完成
+                                                    closingStep.note = JSON.stringify({
+                                                      subsidyType: 'periodic',
+                                                      periodicPaymentDay,
+                                                    })
+                                                  } else {
+                                                    // 一次性：使用評議委員會中設定的匯款日期
+                                                    closingStep.note = JSON.stringify({
+                                                      subsidyType: 'oneTime',
+                                                      oneTimePaymentDate: subsidyData.oneTimePaymentDate || '',
+                                                    })
+                                                  }
+
+                                                  closingStep.status = "approved"
+                                                  closingStep.approvedAt = new Date().toISOString()
+
+                                                  await projectService.updateProject(selectedProject.id, {
+                                                    workflow: newWorkflow,
+                                                    currentStep: selectedProject.currentStep,
+                                                  })
+
+                                                  await loadData()
+                                                  const updated = await projectService.getProjectById(selectedProject.id)
+                                                  if (updated) setSelectedProject(updated)
+                                                } catch (error) {
+                                                  console.error("Failed to save:", error)
+                                                  alert("儲存失敗，請稍後再試")
+                                                } finally {
+                                                  setIsProcessing(false)
+                                                }
+                                              }}
+                                              disabled={isProcessing}
+                                            >
+                                              <Check className="h-4 w-4 mr-2" />
+                                              {isProcessing ? "儲存中..." : "儲存匯款日"}
+                                            </Button>
+                                          )
                                         }
                                       }
                                       return (
@@ -5106,12 +5728,14 @@ export function PlansPage() {
                                             // 從 DOM 收集表單資料
                                             const oneTimeMonth = (document.getElementById(`oneTimeMonth-${step.id}`) as HTMLInputElement)?.value || ''
                                             const oneTimeAmount = (document.getElementById(`oneTimeAmount-${step.id}`) as HTMLInputElement)?.value || ''
+                                            const oneTimePaymentDate = (document.getElementById(`oneTimePaymentDate-${step.id}`) as HTMLInputElement)?.value || ''
                                             const periodStart = (document.getElementById(`periodStart-${step.id}`) as HTMLInputElement)?.value || ''
                                             const periodEnd = (document.getElementById(`periodEnd-${step.id}`) as HTMLInputElement)?.value || ''
                                             const isMonthly = (document.getElementById(`frequency-monthly-${step.id}`) as HTMLInputElement)?.checked
                                             const frequency = isMonthly ? 'monthly' : 'periodic'
                                             const periodicMonths = (document.getElementById(`periodicMonths-${step.id}`) as HTMLInputElement)?.value || ''
                                             const periodicAmount = (document.getElementById(`periodicAmount-${step.id}`) as HTMLInputElement)?.value || ''
+                                            const periodicPaymentDay = (document.getElementById(`periodicPaymentDay-${step.id}`) as HTMLInputElement)?.value || ''
 
                                             // 儲存表單資料到 step.note（包含原始評估表值以便對比）
                                             committeeStep.note = JSON.stringify({
@@ -5120,11 +5744,13 @@ export function PlansPage() {
                                               subsidyType,
                                               oneTimeMonth,
                                               oneTimeAmount,
+                                              oneTimePaymentDate: subsidyType === 'oneTime' ? oneTimePaymentDate : '',
                                               periodStart,
                                               periodEnd,
                                               frequency: subsidyType === 'periodic' ? frequency : '',
                                               periodicMonths,
                                               periodicAmount,
+                                              periodicPaymentDay: subsidyType === 'periodic' ? periodicPaymentDay : '',
                                               // 保存評估表原始值以便對比
                                               evalOriginal: {
                                                 purposes: evalPurposes,
@@ -5164,11 +5790,13 @@ export function PlansPage() {
                                               subsidyType: '',
                                               oneTimeMonth: '',
                                               oneTimeAmount: '',
+                                              oneTimePaymentDate: '',
                                               periodStart: '',
                                               periodEnd: '',
                                               frequency: '',
                                               periodicMonths: '',
                                               periodicAmount: '',
+                                              periodicPaymentDay: '',
                                             })
                                             setCommitteeAttachments([])
                                           } else if (step.name.includes("文件寄發")) {
@@ -5242,37 +5870,75 @@ export function PlansPage() {
                                             const newWorkflow = [...selectedProject.workflow]
                                             const closingStep = newWorkflow[selectedProject.currentStep]
 
-                                            // 從 DOM 收集匯款日期
-                                            const paymentDate = (document.getElementById(`paymentDate-${step.id}`) as HTMLInputElement)?.value || ''
-
-                                            // 儲存表單資料到 step.note
-                                            closingStep.note = JSON.stringify({
-                                              paymentDate,
-                                              trackingDates: closingForm.trackingDates,
-                                            })
-
-                                            // 儲存附件
-                                            if (closingAttachments.length > 0) {
-                                              closingStep.attachments = closingAttachments.map(att => ({
-                                                id: att.id,
-                                                originalUrl: att.originalUrl,
-                                                thumbnailUrl: att.thumbnailUrl,
-                                                fileName: att.fileName,
-                                                fileSize: att.fileSize,
-                                                mimeType: att.mimeType,
-                                                order: att.order,
-                                              }))
+                                            // 檢查補助類型
+                                            const committeeStep = newWorkflow.find(s => s.name.includes("評議委員會"))
+                                            let subsidyType = ''
+                                            if (committeeStep?.note) {
+                                              try {
+                                                const data = JSON.parse(committeeStep.note)
+                                                subsidyType = data.subsidyType || ''
+                                              } catch {}
                                             }
 
-                                            closingStep.status = "approved"
-                                            closingStep.approvedAt = new Date().toISOString()
+                                            if (subsidyType === 'periodic') {
+                                              // 期間性：儲存每月匯款日到評議委員會步驟
+                                              const periodicPaymentDay = (document.getElementById(`periodicPaymentDay-${step.id}`) as HTMLInputElement)?.value || ''
 
-                                            // 更新個案狀態為已完成
-                                            await projectService.updateProject(selectedProject.id, {
-                                              workflow: newWorkflow,
-                                              currentStep: selectedProject.currentStep,
-                                              status: "completed",
-                                            })
+                                              // 更新評議委員會的 note，加入 periodicPaymentDay
+                                              if (committeeStep?.note) {
+                                                try {
+                                                  const committeeData = JSON.parse(committeeStep.note)
+                                                  committeeData.periodicPaymentDay = periodicPaymentDay
+                                                  committeeStep.note = JSON.stringify(committeeData)
+                                                } catch {}
+                                              }
+
+                                              // 結案步驟標記為完成但不改變個案狀態（期間性持續追蹤）
+                                              closingStep.note = JSON.stringify({
+                                                subsidyType: 'periodic',
+                                                periodicPaymentDay,
+                                              })
+                                              closingStep.status = "approved"
+                                              closingStep.approvedAt = new Date().toISOString()
+
+                                              await projectService.updateProject(selectedProject.id, {
+                                                workflow: newWorkflow,
+                                                currentStep: selectedProject.currentStep,
+                                                // 期間性不設為 completed，保持 active 狀態以便追蹤
+                                              })
+                                            } else {
+                                              // 一次性：從 DOM 收集匯款日期
+                                              const paymentDate = (document.getElementById(`paymentDate-${step.id}`) as HTMLInputElement)?.value || ''
+
+                                              // 儲存表單資料到 step.note
+                                              closingStep.note = JSON.stringify({
+                                                paymentDate,
+                                                trackingDates: closingForm.trackingDates,
+                                              })
+
+                                              // 儲存附件
+                                              if (closingAttachments.length > 0) {
+                                                closingStep.attachments = closingAttachments.map(att => ({
+                                                  id: att.id,
+                                                  originalUrl: att.originalUrl,
+                                                  thumbnailUrl: att.thumbnailUrl,
+                                                  fileName: att.fileName,
+                                                  fileSize: att.fileSize,
+                                                  mimeType: att.mimeType,
+                                                  order: att.order,
+                                                }))
+                                              }
+
+                                              closingStep.status = "approved"
+                                              closingStep.approvedAt = new Date().toISOString()
+
+                                              // 不再自動標記為已完成，等付款勾選後才標記
+                                              await projectService.updateProject(selectedProject.id, {
+                                                workflow: newWorkflow,
+                                                currentStep: selectedProject.currentStep,
+                                                // 保持 active 狀態，等待付款完成後才標記為 completed
+                                              })
+                                            }
 
                                             // 重置表單
                                             setClosingForm({ paymentDate: '', trackingDates: [] })
@@ -6005,12 +6671,14 @@ export function PlansPage() {
                 <Label>來源 *</Label>
                 <Select
                   value={projectFormData.sourceType}
-                  onValueChange={(v: "個人" | "機構" | "董事") =>
+                  onValueChange={(v: "個人" | "機構" | "董事" | "轉介") =>
                     setProjectFormData({
                       ...projectFormData,
                       sourceType: v,
                       // Clear organization when not "機構"
                       organizationId: v === "機構" ? projectFormData.organizationId : "",
+                      // Clear referrer when not "轉介"
+                      referrer: v === "轉介" ? projectFormData.referrer : "",
                     })
                   }
                 >
@@ -6021,6 +6689,7 @@ export function PlansPage() {
                     <SelectItem value="個人">個人</SelectItem>
                     <SelectItem value="機構">機構</SelectItem>
                     <SelectItem value="董事">董事</SelectItem>
+                    <SelectItem value="轉介">轉介</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -6069,6 +6738,19 @@ export function PlansPage() {
                       ))}
                   </SelectContent>
                 </Select>
+              </div>
+            )}
+
+            {projectFormData.sourceType === "轉介" && (
+              <div className="space-y-2">
+                <Label>介紹人 *</Label>
+                <Input
+                  value={projectFormData.referrer}
+                  onChange={(e) =>
+                    setProjectFormData({ ...projectFormData, referrer: e.target.value })
+                  }
+                  placeholder="填寫介紹人姓名"
+                />
               </div>
             )}
 
@@ -6574,6 +7256,116 @@ export function PlansPage() {
             </Button>
             <Button onClick={() => resolveEvalConflict(true)}>
               保留我的
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* 評議委員會日期對話框 */}
+      <Dialog open={isCommitteeDateDialogOpen} onOpenChange={setIsCommitteeDateDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>設定評議委員會日期</DialogTitle>
+            <DialogDescription>
+              選擇日期後，如有其他個案在同月份已設定日期，將自動帶入
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label>評議委員會日期</Label>
+              <Input
+                type="date"
+                value={committeeDateInput}
+                onChange={(e) => {
+                  const newDate = e.target.value
+                  setCommitteeDateInput(newDate)
+                  // 檢查同月份是否有其他日期
+                  if (newDate && newDate.length >= 7) {
+                    const monthPrefix = newDate.substring(0, 7)
+                    const existingDates = getProjectsWithSameMonthDate(monthPrefix)
+                    if (existingDates.length > 0) {
+                      // 有同月份的日期，自動帶入
+                      setCommitteeDateInput(existingDates[0].date)
+                    }
+                  }
+                }}
+              />
+            </div>
+
+            {/* 顯示同日期的其他個案 */}
+            {committeeDateInput && (() => {
+              const sameDate = projects
+                .filter(p => p.planId === selectedPlan?.id && p.id !== committeeDateProjectId)
+                .filter(p => getCommitteeDate(p) === committeeDateInput)
+              if (sameDate.length === 0) return null
+              return (
+                <div className="p-3 bg-muted/50 rounded-lg">
+                  <p className="text-sm font-medium mb-2">同日期的其他個案：</p>
+                  <ul className="text-sm text-muted-foreground space-y-1">
+                    {sameDate.map(p => (
+                      <li key={p.id}>• {p.name}</li>
+                    ))}
+                  </ul>
+                  <p className="text-xs text-muted-foreground mt-2">
+                    修改日期將同時更新以上個案
+                  </p>
+                </div>
+              )
+            })()}
+
+            {/* 顯示最近的評議委員會日期建議 */}
+            {!committeeDateInput && (() => {
+              const recentDates = getProjectsWithCommitteeDate()
+                .slice(0, 5) // 最近5個
+                .reduce((acc, item) => {
+                  if (!acc.find(d => d.date === item.date)) {
+                    acc.push(item)
+                  }
+                  return acc
+                }, [] as { project: Project; date: string }[])
+
+              if (recentDates.length === 0) return null
+              return (
+                <div className="space-y-2">
+                  <p className="text-sm font-medium">最近的評議委員會日期：</p>
+                  <div className="flex flex-wrap gap-2">
+                    {recentDates.map(item => (
+                      <Button
+                        key={item.date}
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setCommitteeDateInput(item.date)}
+                      >
+                        {format(new Date(item.date), "yyyy/MM/dd")}
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+              )
+            })()}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsCommitteeDateDialogOpen(false)}>
+              取消
+            </Button>
+            <Button
+              onClick={async () => {
+                if (!committeeDateProjectId) return
+                // 找出同日期的所有專案
+                const currentDate = committeeDateProjectId ? getCommitteeDate(projects.find(p => p.id === committeeDateProjectId)!) : ""
+                const projectsToUpdate = currentDate
+                  ? projects
+                      .filter(p => p.planId === selectedPlan?.id)
+                      .filter(p => getCommitteeDate(p) === currentDate)
+                      .map(p => p.id)
+                  : [committeeDateProjectId]
+
+                // 更新所有相關專案
+                await updateCommitteeDate(projectsToUpdate, committeeDateInput)
+                setIsCommitteeDateDialogOpen(false)
+              }}
+            >
+              儲存
             </Button>
           </DialogFooter>
         </DialogContent>
