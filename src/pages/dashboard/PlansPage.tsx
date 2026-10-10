@@ -3717,7 +3717,7 @@ export function PlansPage() {
                               {/* Attachments & Upload - Horizontal Scroll with Mobile Snap (不顯示評估表，因為有專用區塊) */}
                               {!step.name.includes("評估") && ((step.attachments && step.attachments.length > 0) || canUpload) && (
                                 <div
-                                  className="overflow-x-auto pb-2 -mx-4 px-4 snap-x snap-mandatory md:snap-none"
+                                  className="overflow-x-auto pb-2 -mx-4 px-4 snap-x snap-mandatory md:snap-none snap-scroll-container scrollbar-hide"
                                   style={{ WebkitOverflowScrolling: 'touch' }}
                                 >
                                   <div className="flex gap-4 md:gap-4 items-start" style={{ width: 'max-content' }}>
@@ -3887,7 +3887,7 @@ export function PlansPage() {
                                             <div>
                                               <Label className="text-xs text-muted-foreground">附件</Label>
                                               <div
-                                                className="mt-1 overflow-x-auto -mx-3 px-3 snap-x snap-mandatory md:snap-none"
+                                                className="mt-1 overflow-x-auto -mx-3 px-3 snap-x snap-mandatory md:snap-none snap-scroll-container scrollbar-hide"
                                                 style={{ WebkitOverflowScrolling: 'touch' }}
                                               >
                                                 <div className="flex gap-3 items-start" style={{ width: 'max-content' }}>
@@ -3987,7 +3987,7 @@ export function PlansPage() {
                                             )}
                                             {execution.attachments && execution.attachments.length > 0 && (
                                               <div
-                                                className="overflow-x-auto -mx-3 px-3 snap-x snap-mandatory md:snap-none"
+                                                className="overflow-x-auto -mx-3 px-3 snap-x snap-mandatory md:snap-none snap-scroll-container scrollbar-hide"
                                                 style={{ WebkitOverflowScrolling: 'touch' }}
                                               >
                                                 <div className="flex gap-3 md:gap-3" style={{ width: 'max-content' }}>
@@ -4092,7 +4092,7 @@ export function PlansPage() {
                                   <div className="space-y-2">
                                     <Label>評議委員會文件</Label>
                                     <div
-                                      className="overflow-x-auto pb-2 -mx-4 px-4 snap-x snap-mandatory md:snap-none"
+                                      className="overflow-x-auto pb-2 -mx-4 px-4 snap-x snap-mandatory md:snap-none snap-scroll-container scrollbar-hide"
                                       style={{ WebkitOverflowScrolling: 'touch' }}
                                     >
                                       <div className="flex gap-4 md:gap-4 items-start" style={{ width: 'max-content' }}>
@@ -4341,7 +4341,7 @@ export function PlansPage() {
                                 </div>
                               )}
 
-                              {/* 審核步驟的通過/不通過勾選 */}
+                              {/* 審核步驟的成立/不成立勾選 */}
                               {step.type === "establishment" && step.status === "in_progress" && selectedProject.status === "active" && (
                                 <div className="border-t pt-3 mt-3">
                                   <div className="space-y-3">
@@ -4352,23 +4352,23 @@ export function PlansPage() {
                                           className={`w-4 h-4 rounded-full border-2 cursor-pointer ${reviewResult[step.id] === 'approved' ? 'border-primary bg-primary' : 'border-gray-400 bg-white'}`}
                                           onClick={() => setReviewResult(prev => ({ ...prev, [step.id]: 'approved' }))}
                                         />
-                                        <span className="text-sm">通過</span>
+                                        <span className="text-sm">成立</span>
                                       </label>
                                       <label className="flex items-center gap-2 cursor-pointer">
                                         <div
                                           className={`w-4 h-4 rounded-full border-2 cursor-pointer ${reviewResult[step.id] === 'rejected' ? 'border-primary bg-primary' : 'border-gray-400 bg-white'}`}
                                           onClick={() => setReviewResult(prev => ({ ...prev, [step.id]: 'rejected' }))}
                                         />
-                                        <span className="text-sm">不通過</span>
+                                        <span className="text-sm">不成立</span>
                                       </label>
                                     </div>
                                     {reviewResult[step.id] === 'rejected' && (
                                       <div className="space-y-2">
-                                        <Label className="text-sm">不通過原因</Label>
+                                        <Label className="text-sm">不成立原因</Label>
                                         <textarea
                                           id={`review-reason-text-${step.id}`}
                                           className="flex min-h-20 w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm"
-                                          placeholder="請填寫不通過原因..."
+                                          placeholder="請填寫不成立原因..."
                                         />
                                       </div>
                                     )}
@@ -4387,7 +4387,7 @@ export function PlansPage() {
                                         if (result === "rejected") {
                                           const reasonText = (document.getElementById(`review-reason-text-${step.id}`) as HTMLTextAreaElement)?.value
                                           if (!reasonText?.trim()) {
-                                            alert("請填寫不通過原因")
+                                            alert("請填寫不成立原因")
                                             return
                                           }
                                         }
@@ -4399,7 +4399,7 @@ export function PlansPage() {
                                             const reasonText = (document.getElementById(`review-reason-text-${step.id}`) as HTMLTextAreaElement)?.value
 
                                             if (result === "approved") {
-                                              // 通過：更新當前步驟狀態，進入下一步
+                                              // 成立：更新當前步驟狀態，進入下一步
                                               currentStep.status = "approved"
                                               currentStep.approvedBy = user.id
                                               currentStep.approvedAt = new Date().toISOString()
@@ -4456,7 +4456,7 @@ export function PlansPage() {
                                         <div className="space-y-2">
                                           <Label>評議委員會文件</Label>
                                           <div
-                                            className="overflow-x-auto pb-2 -mx-4 px-4 snap-x snap-mandatory md:snap-none"
+                                            className="overflow-x-auto pb-2 -mx-4 px-4 snap-x snap-mandatory md:snap-none snap-scroll-container scrollbar-hide"
                                             style={{ WebkitOverflowScrolling: 'touch' }}
                                           >
                                             <div className="flex gap-4 md:gap-4 items-start" style={{ width: 'max-content' }}>
@@ -4782,7 +4782,7 @@ export function PlansPage() {
                                             <div className="space-y-2">
                                               <Label>附件</Label>
                                               <div
-                                                className="overflow-x-auto -mx-4 px-4 snap-x snap-mandatory md:snap-none"
+                                                className="overflow-x-auto -mx-4 px-4 snap-x snap-mandatory md:snap-none snap-scroll-container scrollbar-hide"
                                                 style={{ WebkitOverflowScrolling: 'touch' }}
                                               >
                                                 <div className="flex gap-4 items-start" style={{ width: 'max-content' }}>
@@ -4850,7 +4850,7 @@ export function PlansPage() {
                                         <div>
                                           <Label className="text-xs text-muted-foreground">附件</Label>
                                           <div
-                                            className="mt-1 overflow-x-auto -mx-4 px-4 snap-x snap-mandatory md:snap-none"
+                                            className="mt-1 overflow-x-auto -mx-4 px-4 snap-x snap-mandatory md:snap-none snap-scroll-container scrollbar-hide"
                                             style={{ WebkitOverflowScrolling: 'touch' }}
                                           >
                                             <div className="flex gap-4 items-start" style={{ width: 'max-content' }}>

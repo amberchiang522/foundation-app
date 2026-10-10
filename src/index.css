@@ -68,6 +68,42 @@
   .scrollbar-hide::-webkit-scrollbar {
     display: none;
   }
+
+  /* Mobile snap scroll with proper padding alignment */
+  .snap-scroll-container {
+    scroll-padding-left: 1rem;
+    scroll-padding-right: 1rem;
+  }
+
+  /* Radio button styling - custom styled for visibility */
+  input[type="radio"].accent-primary {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 1rem;
+    height: 1rem;
+    border: 2px solid var(--color-border);
+    border-radius: 50%;
+    background-color: transparent;
+    cursor: pointer;
+    position: relative;
+  }
+
+  input[type="radio"].accent-primary:checked {
+    border-color: var(--color-primary);
+    background-color: var(--color-primary);
+  }
+
+  input[type="radio"].accent-primary:checked::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 0.375rem;
+    height: 0.375rem;
+    border-radius: 50%;
+    background-color: white;
+  }
 }
 
 @layer components {
